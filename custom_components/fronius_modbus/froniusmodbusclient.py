@@ -18,7 +18,10 @@ from .froniusmodbusclient_const import (
     STORAGE_CONTROL_MODE_ADDRESS,
     MINIMUM_RESERVE_ADDRESS,
     DISCHARGE_RATE_ADDRESS,
-    CHARGE_RATE_ADDRESS,    
+    CHARGE_RATE_ADDRESS,
+    EXPORT_LIMIT_RATE_ADDRESS,
+    EXPORT_LIMIT_ENABLE_ADDRESS,
+    CONN_ADDRESS,
     STORAGE_CONTROL_MODE,
     CHARGE_STATUS,
     CHARGE_GRID_STATUS,
@@ -29,6 +32,7 @@ from .froniusmodbusclient_const import (
     INVERTER_CONTROLS,
     INVERTER_EVENTS,
     CONTROL_STATUS,
+    EXPORT_LIMIT_STATUS,
     GRID_STATUS,
 #    INVERTER_STATUS,
 #    CONNECTION_STATUS,
@@ -525,6 +529,26 @@ class FroniusModbusClient(ExtModbusClient):
 
         return True
 
+    async def read_export_limit_data(self):
+        """Read export limit control registers"""
+        # Read export limit rate register (40232)
+        rate_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=EXPORT_LIMIT_RATE_ADDRESS, count=1)
+        if rate_regs is not None:
+            export_limit_rate = self._client.convert_from_registers(rate_regs[0:1], data_type=self._client.DATATYPE.UINT16)
+            self.data['export_limit_rate'] = export_limit_rate
+        else:
+            self.data['export_limit_rate'] = None
+
+        # Read export limit enable register (40236)
+        enable_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=EXPORT_LIMIT_ENABLE_ADDRESS, count=1)
+        if enable_regs is not None:
+            export_limit_enable_raw = self._client.convert_from_registers(enable_regs[0:1], data_type=self._client.DATATYPE.UINT16)
+            self.data['export_limit_enable'] = EXPORT_LIMIT_STATUS.get(export_limit_enable_raw, 'Unknown')
+        else:
+            self.data['export_limit_enable'] = None
+
+        return True
+
     async def set_storage_control_mode(self, mode: int):
         if not mode in [0,1,2,3]:
             _LOGGER.error(f'Attempted to set to unsupported storage control mode. Value: {mode}')
@@ -676,3 +700,36 @@ class FroniusModbusClient(ExtModbusClient):
         await self.change_settings(mode=2, charge_limit=100, discharge_limit=-100, grid_charge_power=100)
         self.storage_extended_control_mode = 8
         _LOGGER.info(f"Auto mode")
+
+    async def set_export_limit_rate(self, rate):
+        """Set export limit rate (100-10000, where 10000=100%, minimum 1%)"""
+        if rate < 100:
+            rate = 100
+        elif rate > 10000:
+            rate = 10000
+        await self.write_registers(unit_id=self._inverter_unit_id, address=EXPORT_LIMIT_RATE_ADDRESS, payload=[int(rate)])
+        self.data['export_limit_rate'] = rate
+        _LOGGER.info(f"Set export limit rate to {rate}")
+
+    async def set_export_limit_enable(self, enable):
+        """Enable/disable export limit (0=Disabled, 1=Enabled)"""
+        enable_value = 1 if enable else 0
+        await self.write_registers(unit_id=self._inverter_unit_id, address=EXPORT_LIMIT_ENABLE_ADDRESS, payload=[enable_value])
+        self.data['export_limit_enable'] = enable_value
+        _LOGGER.info(f"Set export limit enable to {enable_value}")
+
+    async def apply_export_limit(self, rate):
+        """Apply export limit by first disabling, then setting rate, then enabling"""
+        await self.set_export_limit_enable(0)  # Disable first
+        await asyncio.sleep(1.0)
+        await self.set_export_limit_rate(rate)  # Set new rate
+        await asyncio.sleep(1.0)
+        await self.set_export_limit_enable(1)  # Enable with new rate
+        _LOGGER.info(f"Applied export limit: rate={rate}, enabled=1")
+
+    async def set_conn_status(self, enable):
+        """Enable/disable inverter connection (0=Disconnected/Standby, 1=Connected/Normal)"""
+        conn_value = 1 if enable else 0
+        await self.write_registers(unit_id=self._inverter_unit_id, address=CONN_ADDRESS, payload=[conn_value])
+        self.data['Conn'] = CONTROL_STATUS[conn_value]
+        _LOGGER.info(f"Set inverter connection status to {conn_value} ({'Connected' if enable else 'Disconnected/Standby'})")

@@ -43,6 +43,15 @@ STORAGE_NUMBER_TYPES = [
 #    ['Reserve Target', 'reserve_target', {'min': 0, 'max': 100, 'unit': '%'}],
 ]
 
+INVERTER_NUMBER_TYPES = [
+    ['Export limit rate', 'export_limit_rate', {'min': 100, 'max': 10000, 'step': 10, 'mode':'box', 'unit': None}],
+]
+
+INVERTER_SELECT_TYPES = [
+    ['Export limit enable', 'export_limit_enable', {0: 'Disabled', 1: 'Enabled'}],
+    ['Inverter connection', 'Conn', {0: 'Disabled', 1: 'Enabled'}],
+]
+
 INVERTER_SENSOR_TYPES = {
     'acpower': ['AC power', 'acpower', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:lightning-bolt', None],
     'acenergy': ['AC energy', 'acenergy', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:lightning-bolt', None],
@@ -72,7 +81,9 @@ INVERTER_SENSOR_TYPES = {
     'OutPFSet_Ena': ['Fixed power factor', 'OutPFSet_Ena', None, None, None, None, EntityCategory.DIAGNOSTIC],
     'VArPct_Ena': ['Limit VAr control', 'VArPct_Ena', None, None, None, None, EntityCategory.DIAGNOSTIC],
     'PhVphA': ['AC voltage L1-N', 'PhVphA', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
-    'unit_id': ['Modbus ID', 'i_unit_id', None, None, None, None, EntityCategory.DIAGNOSTIC],    
+    'unit_id': ['Modbus ID', 'i_unit_id', None, None, None, None, EntityCategory.DIAGNOSTIC],
+    'export_limit_rate': ['Export limit rate', 'export_limit_rate', None, SensorStateClass.MEASUREMENT, None, 'mdi:chart-line', None],
+    'export_limit_enable': ['Export limit enabled', 'export_limit_enable', None, None, None, 'mdi:power-plug', EntityCategory.DIAGNOSTIC],
 }
 
 INVERTER_SYMO_SENSOR_TYPES = {

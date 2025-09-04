@@ -5,6 +5,7 @@ import logging
 from datetime import timedelta
 from typing import Optional
 from importlib.metadata import version
+from packaging import version as pkg_version
 
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_time_interval
@@ -67,13 +68,23 @@ class Hub:
         return
 
     def check_pymodbus_version(self):
-        if version('pymodbus') is None:
-            _LOGGER.warning(f"pymodbus not found")
-        elif version('pymodbus') < self.PYMODBUS_VERSION:
-            raise Exception(f"pymodbus {version('pymodbus')} found, please update to {self.PYMODBUS_VERSION} or higher")
-        elif version('pymodbus') > self.PYMODBUS_VERSION:
-            _LOGGER.warning(f"newer pymodbus {version('pymodbus')} found")
-        _LOGGER.debug(f"pymodbus {version('pymodbus')}")      
+        try:
+            current_version = version('pymodbus')
+            if current_version is None:
+                _LOGGER.warning(f"pymodbus not found")
+                return
+            
+            current = pkg_version.parse(current_version)
+            required = pkg_version.parse(self.PYMODBUS_VERSION)
+            
+            if current < required:
+                raise Exception(f"pymodbus {current_version} found, please update to {self.PYMODBUS_VERSION} or higher")
+            elif current > required:
+                _LOGGER.warning(f"newer pymodbus {current_version} found")
+            _LOGGER.debug(f"pymodbus {current_version}")
+        except Exception as e:
+            _LOGGER.error(f"Error checking pymodbus version: {e}")
+            raise      
 
     @property 
     def device_info_storage(self) -> dict:
@@ -187,6 +198,13 @@ class Hub:
                 _LOGGER.exception("Error reading inverter storage data", exc_info=True)
                 update_result = False
 
+        # Read export limit data
+        try:
+            update_result = await self._client.read_export_limit_data()
+        except Exception as e:
+            _LOGGER.exception("Error reading export limit data", exc_info=True)
+            update_result = False
+
 
         if update_result:
             for update_callback in self._entities:
@@ -270,5 +288,17 @@ class Hub:
     @toggle_busy
     async def set_grid_discharge_power(self, value):
         await self._client.set_grid_discharge_power(value)
+
+    async def set_export_limit_rate(self, value):
+        await self._client.set_export_limit_rate(value)
+
+    async def set_export_limit_enable(self, value):
+        await self._client.set_export_limit_enable(value)
+
+    async def apply_export_limit(self, rate):
+        await self._client.apply_export_limit(rate)
+
+    async def set_conn_status(self, enable):
+        await self._client.set_conn_status(enable)
 
 
