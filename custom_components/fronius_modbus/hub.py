@@ -21,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 class Hub:
     """Hub for Fronius Battery Storage Modbus Interface"""
 
-    PYMODBUS_VERSION = '3.8.3'
+    PYMODBUS_VERSION = '3.11.1'
 
     def __init__(self, hass: HomeAssistant, name: str, host: str, port: int, inverter_unit_id: int, meter_unit_ids, scan_interval: int) -> None:
         """Init hub."""
