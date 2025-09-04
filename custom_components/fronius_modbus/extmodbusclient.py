@@ -82,7 +82,7 @@ class ExtModbusClient:
 
         for attempt in range(retries+1):
             try:
-                data = await self._client.read_holding_registers(address=address, count=count, slave=unit_id)
+                data = await self._client.read_holding_registers(address=address, count=count, device_id=unit_id)
             except ModbusIOException as e:
                 _LOGGER.error(f'error reading registers. IO error. connected: {self._client.connected} address: {address} count: {count} unit id: {unit_id}')
                 return None
@@ -130,7 +130,7 @@ class ExtModbusClient:
         #_LOGGER.debug(f"write registers a: {address} p: {payload} unit_id: {unit_id}")
 
         try:
-            result = await self._client.write_registers(address=address, values=payload, slave=unit_id)
+            result = await self._client.write_registers(address=address, values=payload, device_id=unit_id)
         except ModbusIOException as e:
             raise Exception(f'write_registers: IO error {self._client.connected} {e.fcode} {e}')
         except ConnectionException as e:
