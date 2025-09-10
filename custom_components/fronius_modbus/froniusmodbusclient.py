@@ -246,10 +246,16 @@ class FroniusModbusClient(ExtModbusClient):
 
         StActCtl = self._client.convert_from_registers(regs[33:35], data_type = self._client.DATATYPE.UINT32)
         
+        Ris = self._client.convert_from_registers(regs[42:43], data_type = self._client.DATATYPE.UINT16)
+        Ris_SF = self._client.convert_from_registers(regs[43:44], data_type = self._client.DATATYPE.UINT16)
+
         self.data['pv_connection'] = CONNECTION_STATUS_CONDENSED[PVConn]
-        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED[StorConn] 
+        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED[StorConn]
         self.data['ecp_connection'] = ECP_CONNECTION_STATUS[ECPConn]
-        self.data['inverter_controls'] = self.bitmask_to_string(StActCtl, INVERTER_CONTROLS, 'Normal')  
+        self.data['inverter_controls'] = self.bitmask_to_string(StActCtl, INVERTER_CONTROLS, 'Normal')
+        # Adjust the scaling factor because isolation resistance is provided
+        # in Ohm and stored in Mega Ohm.
+        self.data['isolation_resistance'] = self.calculate_value(Ris, Ris_SF-6)
 
         return True
 
