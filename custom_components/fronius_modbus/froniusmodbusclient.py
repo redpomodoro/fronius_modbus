@@ -18,7 +18,7 @@ from .froniusmodbusclient_const import (
     STORAGE_CONTROL_MODE_ADDRESS,
     MINIMUM_RESERVE_ADDRESS,
     DISCHARGE_RATE_ADDRESS,
-    CHARGE_RATE_ADDRESS,    
+    CHARGE_RATE_ADDRESS,
     STORAGE_CONTROL_MODE,
     CHARGE_STATUS,
     CHARGE_GRID_STATUS,
@@ -65,7 +65,7 @@ class FroniusModbusClient(ExtModbusClient):
 
     async def init_data(self):
         await self.connect()
-        try: 
+        try:
             result = await self.read_device_info_data(prefix='i_', unit_id=self._inverter_unit_id)
         except Exception as e:
             _LOGGER.error(f"Error reading inverter info {self._host}:{self._port} unit id: {self._inverter_unit_id}", exc_info=True)
@@ -104,7 +104,7 @@ class FroniusModbusClient(ExtModbusClient):
         _LOGGER.debug(f"Init done. data: {self.data}")
 
         return True
-    
+
     def get_json_storage_info(self):
         self.data['s_manufacturer'] = None
         self.data['s_model'] = 'Battery Storage'
@@ -126,7 +126,7 @@ class FroniusModbusClient(ExtModbusClient):
             except Exception as e:
                 _LOGGER.error(f"Error no body data in json data: {data}")
                 return
-            
+
             for c in bodydata.keys():
                 try:
                     details = bodydata[c]['Controller']['Details']
@@ -138,7 +138,7 @@ class FroniusModbusClient(ExtModbusClient):
                 self.data['s_model'] = details['Model']
                 self.data['s_serial'] = str(details['Serial']).strip()
                 break
- 
+
         except Exception as e:
             _LOGGER.error(f"Error storage json data {url} {e}", exc_info=True)
 
@@ -289,6 +289,40 @@ class FroniusModbusClient(ExtModbusClient):
 
         return True
 
+    def protect_lfte(self, key, value):
+        ''' ensure lfte values are monotonically increasing to fullfil the properties of SensorStateClass.TOTAL_INCREASING.
+            Therfore this function returns the previous, last known good value, in case the modbus read was erroneus:
+            * the current value from modbus is None
+            * the current value from modbus is smaller than the previous value
+            * the current value from modbus is much larger then the previous value
+
+            This avoids wrong spikes in consumption / production on the energy dashboard
+        '''
+
+        if key not in self.data:
+            _LOGGER.info(f"Initializing {key}={value}")
+            return value
+        elif self.data[key] is None:
+            # None is a invalid value for monotonically increasing data.
+            # hopefully never happens
+            _LOGGER.info(f"Found initial {key}=None. Now using new value {value}")
+            return value
+        elif value is None:
+            _LOGGER.warn(f"Received implausible {key}={value}. Using previous plausible value {self.data[key]}")
+            return self.data[key]
+        elif value < self.data[key]:
+            _LOGGER.warn(f"Received implausible (too small) {key}={value} < previous plausible value {self.data[key]}")
+            return self.data[key]
+        elif value > self.data[key] + 100000:
+            # we allow steps of 100 kWh. Usually, at a typicall rate every 10 seconds the steps should be far below.
+            # However, when data transfer is not working for minutes or even an hour it could become relevant.
+            # Also, wrong values are often by orders of magnitude to large, which should still be avoided by this check.
+
+            _LOGGER.warn(f"Received implausible (too large) {key}={value} >> previous plausible value {self.data[key]}")
+            return self.data[key]
+        else:
+            return value
+
     async def read_mppt_data(self):
         regs = await self.get_registers(unit_id=self._inverter_unit_id, address=MPPT_ADDRESS, count=88)
         if regs is None:
@@ -317,9 +351,13 @@ class FroniusModbusClient(ExtModbusClient):
         mppt1_lfte = self.calculate_value(module_1_DCWH, DCWH_SF)
         mppt2_lfte = self.calculate_value(module_2_DCWH, DCWH_SF)
 
+        mppt1_lfte = self.protect_lfte('mppt1_lfte', mppt1_lfte)
+        mppt2_lfte = self.protect_lfte('mppt2_lfte', mppt2_lfte)
+
         self.data['mppt1_power'] = mppt1_power
         self.data['mppt2_power'] = mppt2_power
         self.data['pv_power'] = pv_power
+
         self.data['mppt1_lfte'] = mppt1_lfte
         self.data['mppt2_lfte'] = mppt2_lfte
 
@@ -336,9 +374,12 @@ class FroniusModbusClient(ExtModbusClient):
                 storage_power = mppt4_power - mppt3_power
             else:
                 storage_power = None
-        
+
             mppt3_lfte = self.calculate_value(module_3_DCWH, DCWH_SF)
             mppt4_lfte = self.calculate_value(module_4_DCWH, DCWH_SF)
+
+            mppt3_lfte = self.protect_lfte('mppt3_lfte', mppt3_lfte)
+            mppt4_lfte = self.protect_lfte('mppt4_lfte', mppt4_lfte)
 
             self.data['mppt3_power'] = mppt3_power
             self.data['mppt4_power'] = mppt4_power
@@ -480,13 +521,13 @@ class FroniusModbusClient(ExtModbusClient):
 
         acpower = self.calculate_value(W, W_SF, 2, -50000, 50000)
         m_frequency = self.calculate_value(Hz, Hz_SF, 2, 0, 100)
- 
+
         self.data[meter_prefix + "PhVphA"] = self.calculate_value(PhVphA, V_SF,1,0,1000)
         self.data[meter_prefix + "PhVphB"] = self.calculate_value(PhVphB, V_SF,1,0,1000)
         self.data[meter_prefix + "PhVphC"] = self.calculate_value(PhVphC, V_SF,1,0,1000)
         self.data[meter_prefix + "PPV"] = self.calculate_value(PPV, V_SF,1,0,1000)
-        self.data[meter_prefix + "exported"] = self.calculate_value(TotWhExp, TotWh_SF)
-        self.data[meter_prefix + "imported"] = self.calculate_value(TotWhImp, TotWh_SF)
+        self.data[meter_prefix + "exported"] = self.protect_lfte(meter_prefix + 'exported', self.calculate_value(TotWhExp, TotWh_SF))
+        self.data[meter_prefix + "imported"] = self.protect_lfte(meter_prefix + 'imported', self.calculate_value(TotWhImp, TotWh_SF))
         self.data[meter_prefix + "line_frequency"] = m_frequency
         self.data[meter_prefix + "power"] = acpower
 
