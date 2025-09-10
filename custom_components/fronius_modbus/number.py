@@ -3,7 +3,6 @@ from typing import Optional, Dict, Any
 
 from .const import (
     STORAGE_NUMBER_TYPES,
-    ENTITY_PREFIX,
 )
 
 from homeassistant.core import callback
@@ -34,7 +33,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities) -> None:
                 max = number_info[2]['max']
 
             number = FroniusModbusNumber(
-                ENTITY_PREFIX,
+                hub.entity_prefix,
                 hub,
                 hub.device_info_storage,
                 number_info[0],

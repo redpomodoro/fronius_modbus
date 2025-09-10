@@ -22,7 +22,6 @@ from .const import (
     INVERTER_STORAGE_SENSOR_TYPES,
     METER_SENSOR_TYPES,
     STORAGE_SENSOR_TYPES,
-    ENTITY_PREFIX,
 )
 from .hub import Hub
 from .base import FroniusModbusBaseEntity
@@ -41,7 +40,7 @@ async def async_setup_entry(
 
     for sensor_info in INVERTER_SENSOR_TYPES.values():
         sensor = FroniusModbusSensor(
-            platform_name = ENTITY_PREFIX,
+            platform_name = hub.entity_prefix,
             hub = hub,
             device_info = hub.device_info_inverter,
             name = sensor_info[0],
@@ -56,7 +55,7 @@ async def async_setup_entry(
 
     for sensor_info in INVERTER_SYMO_SENSOR_TYPES.values():
         sensor = FroniusModbusSensor(
-            platform_name = ENTITY_PREFIX,
+            platform_name = hub.entity_prefix,
             hub = hub,
             device_info = hub.device_info_inverter,
             name = sensor_info[0],
@@ -73,7 +72,7 @@ async def async_setup_entry(
         meter_id = '1'
         for sensor_info in METER_SENSOR_TYPES.values():
             sensor = FroniusModbusSensor(
-                platform_name = ENTITY_PREFIX,
+                platform_name = hub.entity_prefix,
                 hub = hub,
                 device_info = hub.get_device_info_meter(meter_id),
                 name = f'Meter {meter_id} ' + sensor_info[0],
@@ -89,7 +88,7 @@ async def async_setup_entry(
     if hub.storage_configured:
         for sensor_info in INVERTER_STORAGE_SENSOR_TYPES.values():
             sensor = FroniusModbusSensor(
-                platform_name = ENTITY_PREFIX,
+                platform_name = hub.entity_prefix,
                 hub = hub,
                 device_info = hub.device_info_inverter,
                 name = sensor_info[0],
@@ -104,7 +103,7 @@ async def async_setup_entry(
 
         for sensor_info in STORAGE_SENSOR_TYPES.values():
             sensor = FroniusModbusSensor(
-                platform_name = ENTITY_PREFIX,
+                platform_name = hub.entity_prefix,
                 hub = hub,
                 device_info = hub.device_info_storage,
                 name = sensor_info[0],

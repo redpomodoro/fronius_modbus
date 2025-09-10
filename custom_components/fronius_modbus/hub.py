@@ -14,6 +14,7 @@ from .froniusmodbusclient import FroniusModbusClient
 
 from .const import (
     DOMAIN,
+    ENTITY_PREFIX,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class Hub:
         """Init hub."""
         self._hass = hass
         self._name = name
+        self._entity_prefix = f'{ENTITY_PREFIX}_{name.lower()}_'
 
         self._id = f'{name.lower()}_{host.lower().replace('.','')}'
         self.online = True        
@@ -112,6 +114,11 @@ class Hub:
     def hub_id(self) -> str:
         """ID for hub."""
         return self._id
+
+    @property
+    def entity_prefix(self) -> str:
+        """Entity prefix for hub."""
+        return self._entity_prefix
 
     @callback
     def async_add_hub_entity(self, update_callback):
