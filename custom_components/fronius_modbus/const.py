@@ -109,7 +109,7 @@ STORAGE_SENSOR_TYPES = {
     'control_mode': ['Core storage control mode', 'control_mode', None, None, None, None, EntityCategory.DIAGNOSTIC],
     'charge_status': ['Charge status', 'charge_status', None, None, None, None, None, EntityCategory.DIAGNOSTIC],
     'max_charge': ['Max charging power', 'max_charge', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:gauge', EntityCategory.DIAGNOSTIC],
-    'soc': ['State of charge', 'soc', None, SensorStateClass.MEASUREMENT, '%', 'mdi:battery', None],
+    'soc': ['State of charge', 'soc', SensorDeviceClass.BATTERY, SensorStateClass.MEASUREMENT, '%', None, None],
     'charging_power': ['Charging power', 'charging_power',  None, None, '%', 'mdi:gauge', EntityCategory.DIAGNOSTIC],
     'discharging_power': ['Discharging power', 'discharging_power',  None, None, '%', 'mdi:gauge', EntityCategory.DIAGNOSTIC],
     'minimum_reserve': ['Minimum reserve', 'minimum_reserve',  None, None, '%', 'mdi:gauge', None],
