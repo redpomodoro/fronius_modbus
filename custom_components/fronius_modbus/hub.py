@@ -261,7 +261,7 @@ class Hub:
 
     @toggle_busy
     async def set_discharge_limit(self, value):
-        await self._client.set_charge_limit(value)
+        await self._client.set_discharge_limit(value)
 
     @toggle_busy
     async def set_grid_charge_power(self, value):
