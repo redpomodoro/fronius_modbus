@@ -53,15 +53,43 @@ async def async_setup_entry(hass, config_entry, async_add_entities) -> None:
 class FroniusModbusNumber(FroniusModbusBaseEntity, NumberEntity):
     """Representation of an Battery Storage Modbus number."""
 
+    def _storage_reference_power_w(self):
+        max_charge = self._hub.data.get('max_charge')
+        if isinstance(max_charge, (int, float)) and max_charge > 0:
+            return max_charge
+
+        max_charge_rate = self._hub.max_charge_rate_w
+        max_discharge_rate = self._hub.max_discharge_rate_w
+        if isinstance(max_charge_rate, (int, float)) and isinstance(max_discharge_rate, (int, float)):
+            if max_charge_rate > 0 and max_discharge_rate > 0:
+                return max(max_charge_rate, max_discharge_rate)
+
+        if isinstance(max_discharge_rate, (int, float)) and max_discharge_rate > 0:
+            return max_discharge_rate
+        if isinstance(max_charge_rate, (int, float)) and max_charge_rate > 0:
+            return max_charge_rate
+        return None
+
     @property
     def state(self):
         """Return the state of the sensor."""
 
         if self._key in self._hub.data:
-            if self._key in ['grid_discharge_power','discharge_limit']:
-                value = round(self._hub.data[self._key] / 100.0 * self._hub.max_discharge_rate_w,0)
-            elif self._key in ['grid_charge_power','charge_limit']:
-                value = round(self._hub.data[self._key] / 100.0 * self._hub.max_charge_rate_w,0)
+            if self._key in ['grid_discharge_power','discharge_limit','grid_charge_power','charge_limit']:
+                raw_value = self._hub.data[self._key]
+                if isinstance(raw_value, (int, float)):
+                    # Internal value is percent (OutWRte/InWRte domain). Convert to W for UI.
+                    if raw_value >= 0 and raw_value <= 100:
+                        reference_power = self._storage_reference_power_w()
+                        if isinstance(reference_power, (int, float)) and reference_power > 0:
+                            value = round(raw_value / 100.0 * reference_power,0)
+                        else:
+                            value = raw_value
+                    else:
+                        # Backward compatibility: if already W, keep as-is.
+                        value = raw_value
+                else:
+                    value = raw_value
             else:
                 value = self._hub.data[self._key]    
             return value

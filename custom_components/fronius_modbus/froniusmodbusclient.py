@@ -678,7 +678,7 @@ class FroniusModbusClient(ExtModbusClient):
         reference_power = self._get_storage_reference_power_w()
         if not self.is_numeric(reference_power) or reference_power <= 0:
             _LOGGER.error("Cannot set discharge limit: invalid WChaMax/reference power %s", reference_power)
-            return
+            return None
 
         if discharge_rate_w > reference_power:
             discharge_rate = 100
@@ -687,6 +687,7 @@ class FroniusModbusClient(ExtModbusClient):
         else:
             discharge_rate = discharge_rate_w / reference_power * 100
         await self.set_discharge_rate(discharge_rate)
+        return discharge_rate
 
     async def set_discharge_rate(self, discharge_rate):
         if discharge_rate < 0:
@@ -731,8 +732,9 @@ class FroniusModbusClient(ExtModbusClient):
     async def set_discharge_limit(self, value):
         if self.storage_extended_control_mode in [2,3,7]:
             # only change when discharge limit is used
-            await self.set_discharge_rate_w(value)
-            self.data['discharge_limit'] = value
+            discharge_rate = await self.set_discharge_rate_w(value)
+            if self.is_numeric(discharge_rate):
+                self.data['discharge_limit'] = round(discharge_rate, 2)
         elif self.storage_extended_control_mode in [4,5,6]:
             return
         elif self.storage_extended_control_mode in [0,1]:
