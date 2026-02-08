@@ -15,10 +15,6 @@ from .froniusmodbusclient_const import (
     NAMEPLATE_ADDRESS,
     STORAGE_ADDRESS,
     METER_ADDRESS,
-    STORAGE_CONTROL_MODE_ADDRESS,
-    MINIMUM_RESERVE_ADDRESS,
-    DISCHARGE_RATE_ADDRESS,
-    CHARGE_RATE_ADDRESS,    
     STORAGE_CONTROL_MODE,
     CHARGE_STATUS,
     CHARGE_GRID_STATUS,
@@ -54,6 +50,9 @@ class FroniusModbusClient(ExtModbusClient):
         self.storage_extended_control_mode = 0
         self.max_charge_rate_w = 11000
         self.max_discharge_rate_w = 11000
+        self._storage_address = STORAGE_ADDRESS
+        self.mppt_module_count = 2
+        self.mppt_model_length = 88
         self._grid_frequency = 50
         self._grid_frequency_lower_bound = self._grid_frequency - 0.2
         self._grid_frequency_upper_bound = self._grid_frequency + 0.2
@@ -62,6 +61,33 @@ class FroniusModbusClient(ExtModbusClient):
         self._inverter_frequency_upper_bound = self._grid_frequency + 5
 
         self.data = {}
+
+    def _map_value(self, values: dict, key: int, field_name: str):
+        value = values.get(key)
+        if value is None:
+            _LOGGER.debug("Unknown %s code %s", field_name, key)
+            return f"Unknown ({key})"
+        return value
+
+    def _storage_register_address(self, offset: int) -> int:
+        return self._storage_address + offset
+
+    def _update_storage_base_address(self, mppt_model_length: int):
+        if not self.is_numeric(mppt_model_length):
+            return
+
+        model_length = int(mppt_model_length)
+        if model_length < 20 or model_length > 200:
+            return
+
+        # In this integration's addressing mode, storage model starts directly behind MPPT at L + length + 2.
+        candidate = MPPT_ADDRESS + model_length + 2
+        if candidate < 40300 or candidate > 40500:
+            return
+
+        self.mppt_model_length = model_length
+        self._storage_address = candidate
+        self.data["storage_model_address"] = candidate
 
     async def init_data(self):
         await self.connect()
@@ -100,6 +126,9 @@ class FroniusModbusClient(ExtModbusClient):
 
         if await self.read_inverter_nameplate_data() == False:
             _LOGGER.error(f"Error reading nameplate data", exc_info=True)
+        elif self.mppt_configured:
+            # Re-evaluate MPPT channels after storage detection from nameplate data.
+            await self.read_mppt_data()
 
         _LOGGER.debug(f"Init done. data: {self.data}")
 
@@ -202,7 +231,7 @@ class FroniusModbusClient(ExtModbusClient):
         self.data["line_frequency"] = self.calculate_value(Hz, Hz_SF, 2, 0, 100)
         self.data["acenergy"] = self.calculate_value(WH, WH_SF) 
         #self.data["status"] = INVERTER_STATUS[St]
-        self.data["statusvendor"] = FRONIUS_INVERTER_STATUS[StVnd]
+        self.data["statusvendor"] = self._map_value(FRONIUS_INVERTER_STATUS, StVnd, "inverter status")
         self.data["statusvendor_id"] = StVnd
         #self.data["events1"] = self.bitmask_to_string(EvtVnd1,INVERTER_EVENTS,default='None',bits=32)  
         self.data["events2"] = self.bitmask_to_string(EvtVnd2,INVERTER_EVENTS,default='None',bits=32)  
@@ -219,19 +248,23 @@ class FroniusModbusClient(ExtModbusClient):
         DERTyp = self._client.convert_from_registers(regs[0:1], data_type = self._client.DATATYPE.UINT16)
         # WHRtg: Nominal energy rating of storage device.
         WHRtg = self._client.convert_from_registers(regs[17:18], data_type = self._client.DATATYPE.UINT16)
+        WHRtg_SF = self._client.convert_from_registers(regs[18:19], data_type = self._client.DATATYPE.INT16)
         # MaxChaRte: Maximum rate of energy transfer into the storage device.
         MaxChaRte = self._client.convert_from_registers(regs[21:22], data_type = self._client.DATATYPE.UINT16)
+        MaxChaRte_SF = self._client.convert_from_registers(regs[22:23], data_type = self._client.DATATYPE.INT16)
         # MaxDisChaRte: Maximum rate of energy transfer out of the storage device.
         MaxDisChaRte = self._client.convert_from_registers(regs[23:24], data_type = self._client.DATATYPE.UINT16)
+        MaxDisChaRte_SF = self._client.convert_from_registers(regs[24:25], data_type = self._client.DATATYPE.INT16)
 
-        if DERTyp == 82:
-            self.storage_configured = True
-        self.data['WHRtg'] = WHRtg
-        self.data['MaxChaRte'] = MaxChaRte
-        self.data['MaxDisChaRte'] = MaxDisChaRte
+        self.data['DERTyp'] = DERTyp
+        self.data['WHRtg'] = self.calculate_value(WHRtg, WHRtg_SF, 0)
+        self.data['MaxChaRte'] = self.calculate_value(MaxChaRte, MaxChaRte_SF, 0)
+        self.data['MaxDisChaRte'] = self.calculate_value(MaxDisChaRte, MaxDisChaRte_SF, 0)
     
-        self.max_charge_rate_w = MaxChaRte
-        self.max_discharge_rate_w = MaxDisChaRte
+        if self.is_numeric(self.data['MaxChaRte']):
+            self.max_charge_rate_w = self.data['MaxChaRte']
+        if self.is_numeric(self.data['MaxDisChaRte']):
+            self.max_discharge_rate_w = self.data['MaxDisChaRte']
 
         return True
 
@@ -246,9 +279,9 @@ class FroniusModbusClient(ExtModbusClient):
 
         StActCtl = self._client.convert_from_registers(regs[33:35], data_type = self._client.DATATYPE.UINT32)
         
-        self.data['pv_connection'] = CONNECTION_STATUS_CONDENSED[PVConn]
-        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED[StorConn] 
-        self.data['ecp_connection'] = ECP_CONNECTION_STATUS[ECPConn]
+        self.data['pv_connection'] = self._map_value(CONNECTION_STATUS_CONDENSED, PVConn, 'pv connection')
+        self.data['storage_connection'] = self._map_value(CONNECTION_STATUS_CONDENSED, StorConn, 'storage connection')
+        self.data['ecp_connection'] = self._map_value(ECP_CONNECTION_STATUS, ECPConn, 'electrical connection')
         self.data['inverter_controls'] = self.bitmask_to_string(StActCtl, INVERTER_CONTROLS, 'Normal')  
 
         return True
@@ -282,76 +315,159 @@ class FroniusModbusClient(ExtModbusClient):
         OutPFSet_Ena = self._client.convert_from_registers(regs[12:13], data_type = self._client.DATATYPE.UINT16)
         VArPct_Ena = self._client.convert_from_registers(regs[20:21], data_type = self._client.DATATYPE.INT16)
 
-        self.data['Conn'] = CONTROL_STATUS[Conn]
-        self.data['WMaxLim_Ena'] = CONTROL_STATUS[WMaxLim_Ena]
-        self.data['OutPFSet_Ena'] = CONTROL_STATUS[OutPFSet_Ena]
-        self.data['VArPct_Ena'] = CONTROL_STATUS[VArPct_Ena]
+        self.data['Conn'] = self._map_value(CONTROL_STATUS, Conn, 'connection control')
+        self.data['WMaxLim_Ena'] = self._map_value(CONTROL_STATUS, WMaxLim_Ena, 'throttle control')
+        self.data['OutPFSet_Ena'] = self._map_value(CONTROL_STATUS, OutPFSet_Ena, 'fixed power factor')
+        self.data['VArPct_Ena'] = self._map_value(CONTROL_STATUS, VArPct_Ena, 'VAr control')
 
         return True
 
     async def read_mppt_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=MPPT_ADDRESS, count=88)
+        mppt_read_address = MPPT_ADDRESS
+        header_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=MPPT_ADDRESS, count=2)
+        if header_regs is None:
+            return False
+
+        mppt_model_length = self._client.convert_from_registers(header_regs[0:1], data_type=self._client.DATATYPE.UINT16)
+        if not self.is_numeric(mppt_model_length) or int(mppt_model_length) < 20 or int(mppt_model_length) > 200:
+            alt_header_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=MPPT_ADDRESS - 1, count=2)
+            if alt_header_regs is None:
+                return False
+            alt_mppt_model_length = self._client.convert_from_registers(alt_header_regs[0:1], data_type=self._client.DATATYPE.UINT16)
+            if not self.is_numeric(alt_mppt_model_length) or int(alt_mppt_model_length) < 20 or int(alt_mppt_model_length) > 200:
+                return False
+            mppt_model_length = alt_mppt_model_length
+            mppt_read_address = MPPT_ADDRESS - 1
+
+        self._update_storage_base_address(int(mppt_model_length))
+        self.data['mppt_model_length'] = int(mppt_model_length)
+
+        storage_model_header = await self.get_registers(
+            unit_id=self._inverter_unit_id,
+            address=self._storage_address - 2,
+            count=2,
+        )
+        if storage_model_header and len(storage_model_header) == 2:
+            storage_model_id = self._client.convert_from_registers(storage_model_header[0:1], data_type=self._client.DATATYPE.UINT16)
+            storage_model_length = self._client.convert_from_registers(storage_model_header[1:2], data_type=self._client.DATATYPE.UINT16)
+            self.data['storage_model_id'] = storage_model_id
+            self.data['storage_model_length'] = storage_model_length
+            if storage_model_id == 124 and storage_model_length == 24:
+                self.storage_configured = True
+
+        model_register_count = int(mppt_model_length) + 1
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=mppt_read_address, count=model_register_count)
         if regs is None:
             return False
 
-        DCW_SF = self._client.convert_from_registers(regs[2:3], data_type = self._client.DATATYPE.INT16)
-        DCWH_SF = self._client.convert_from_registers(regs[3:4], data_type = self._client.DATATYPE.INT16)
-        #N = self._client.convert_from_registers(regs[6:7], data_type = self._client.DATATYPE.UINT16)
-        # if N != 4:
-        #     _LOGGER.error(f"Integration only supports 4 mppt modules. Found only: {N}")
-        #     return
+        model_limit = len(regs)
+        if model_limit < 8:
+            return False
 
-        module_1_DCW = self._client.convert_from_registers(regs[19:20], data_type = self._client.DATATYPE.UINT16)
-        module_1_DCWH = self._client.convert_from_registers(regs[20:22], data_type = self._client.DATATYPE.UINT32)
+        DCW_SF = self._client.convert_from_registers(regs[3:4], data_type=self._client.DATATYPE.INT16)
+        DCWH_SF = self._client.convert_from_registers(regs[4:5], data_type=self._client.DATATYPE.INT16)
+        reported_module_count = self._client.convert_from_registers(regs[7:8], data_type=self._client.DATATYPE.UINT16)
+        if not self.is_numeric(reported_module_count) or int(reported_module_count) <= 0:
+            return False
 
-        module_2_DCW = self._client.convert_from_registers(regs[39:40], data_type = self._client.DATATYPE.UINT16)
-        module_2_DCWH = self._client.convert_from_registers(regs[40:42], data_type = self._client.DATATYPE.UINT32)
+        # Module i has DCW at index 20*i and DCWH at index 20*i+1 (2 registers) relative to L.
+        max_modules_by_length = (model_limit - 2) // 20
+        module_count = min(int(reported_module_count), int(max_modules_by_length))
+        if module_count <= 0:
+            return False
 
-        mppt1_power = self.calculate_value(module_1_DCW, DCW_SF, 2, 0, 15000)
-        mppt2_power = self.calculate_value(module_2_DCW, DCW_SF, 2, 0, 15000)
-        if not mppt1_power is None and not mppt2_power is None:
-             pv_power = mppt1_power + mppt2_power
-        else:
-            pv_power = None
+        self.mppt_module_count = module_count
+        self.data['mppt_module_count'] = module_count
 
-        mppt1_lfte = self.calculate_value(module_1_DCWH, DCWH_SF)
-        mppt2_lfte = self.calculate_value(module_2_DCWH, DCWH_SF)
+        module_power = {}
+        module_lfte = {}
+        module_labels = {}
+        for module_id in range(1, module_count + 1):
+            label_idx = 20 * (module_id - 1) + 10
+            power_idx = 20 * module_id
+            lfte_idx = power_idx + 1
 
-        self.data['mppt1_power'] = mppt1_power
-        self.data['mppt2_power'] = mppt2_power
-        self.data['pv_power'] = pv_power
-        self.data['mppt1_lfte'] = mppt1_lfte
-        self.data['mppt2_lfte'] = mppt2_lfte
+            label = None
+            if label_idx + 8 <= model_limit:
+                try:
+                    label = self.get_string_from_registers(regs[label_idx:label_idx + 8])
+                except Exception:
+                    label = None
+            module_labels[module_id] = label
 
-        if self.storage_configured:
-            module_3_DCW = self._client.convert_from_registers(regs[59:60], data_type = self._client.DATATYPE.UINT16)
-            module_3_DCWH = self._client.convert_from_registers(regs[60:62], data_type = self._client.DATATYPE.UINT32)
+            raw_power = self._client.convert_from_registers(regs[power_idx:power_idx + 1], data_type=self._client.DATATYPE.UINT16)
+            raw_lfte = self._client.convert_from_registers(regs[lfte_idx:lfte_idx + 2], data_type=self._client.DATATYPE.UINT32)
 
-            module_4_DCW = self._client.convert_from_registers(regs[79:80], data_type = self._client.DATATYPE.UINT16)
-            module_4_DCWH = self._client.convert_from_registers(regs[80:82], data_type = self._client.DATATYPE.UINT32)
+            power = self.calculate_value(raw_power, DCW_SF, 2)
+            lfte = self.calculate_value(raw_lfte, DCWH_SF)
 
-            mppt3_power = self.calculate_value(module_3_DCW, DCW_SF, 2, 0, 15000)
-            mppt4_power = self.calculate_value(module_4_DCW, DCW_SF, 2, 0, 15000)
-            if not mppt3_power is None and not mppt4_power is None:
-                storage_power = mppt4_power - mppt3_power
+            module_power[module_id] = power
+            module_lfte[module_id] = lfte
+            self.data[f'module{module_id}_label'] = label
+            self.data[f'module{module_id}_power'] = power
+            self.data[f'module{module_id}_lfte'] = lfte
+
+        for module_id in range(1, min(module_count, 4) + 1):
+            self.data[f'mppt{module_id}_power'] = module_power.get(module_id)
+            self.data[f'mppt{module_id}_lfte'] = module_lfte.get(module_id)
+
+        storage_charge_module = None
+        storage_discharge_module = None
+        for module_id, label in module_labels.items():
+            if not isinstance(label, str):
+                continue
+            normalized = label.replace(" ", "").upper()
+            if "STDISCHA" in normalized:
+                storage_discharge_module = module_id
+            elif normalized.startswith("STCHA"):
+                storage_charge_module = module_id
+
+        # Model 160 reports N as MPPT tracker count + 2 battery channels.
+        # If labels are unavailable, keep compatibility by using the last two modules as storage channels.
+        if self.storage_configured and not (storage_charge_module and storage_discharge_module) and module_count >= 4:
+            storage_charge_module = module_count - 1
+            storage_discharge_module = module_count
+
+        if self.storage_configured and storage_charge_module and storage_discharge_module:
+            self.data['storage_charge_module'] = storage_charge_module
+            self.data['storage_discharge_module'] = storage_discharge_module
+
+            self.data['mppt3_power'] = module_power.get(storage_charge_module)
+            self.data['mppt4_power'] = module_power.get(storage_discharge_module)
+            self.data['mppt3_lfte'] = module_lfte.get(storage_charge_module)
+            self.data['mppt4_lfte'] = module_lfte.get(storage_discharge_module)
+
+            storage_charge_power = module_power.get(storage_charge_module)
+            storage_discharge_power = module_power.get(storage_discharge_module)
+            if self.is_numeric(storage_charge_power) and self.is_numeric(storage_discharge_power):
+                self.data['storage_power'] = round(storage_discharge_power - storage_charge_power, 2)
             else:
-                storage_power = None
-        
-            mppt3_lfte = self.calculate_value(module_3_DCWH, DCWH_SF)
-            mppt4_lfte = self.calculate_value(module_4_DCWH, DCWH_SF)
+                self.data['storage_power'] = None
+        elif self.storage_configured:
+            self.data['mppt3_power'] = None
+            self.data['mppt4_power'] = None
+            self.data['mppt3_lfte'] = None
+            self.data['mppt4_lfte'] = None
+            self.data['storage_power'] = None
 
-            self.data['mppt3_power'] = mppt3_power
-            self.data['mppt4_power'] = mppt4_power
-            self.data['storage_power'] = storage_power
+        pv_modules = []
+        for module_id, label in module_labels.items():
+            if isinstance(label, str) and "MPPT" in label.upper():
+                pv_modules.append(module_id)
+        if not pv_modules:
+            if storage_charge_module and storage_discharge_module:
+                pv_modules = [module_id for module_id in range(1, module_count + 1) if module_id not in [storage_charge_module, storage_discharge_module]]
+            else:
+                pv_modules = list(range(1, module_count + 1))
 
-            self.data['mppt3_lfte'] = mppt3_lfte
-            self.data['mppt4_lfte'] = mppt4_lfte
+        pv_values = [module_power.get(module_id) for module_id in pv_modules if self.is_numeric(module_power.get(module_id))]
+        self.data['pv_power'] = round(sum(pv_values), 2) if pv_values else None
 
         return True
 
     async def read_inverter_storage_data(self):
         """start reading storage data"""
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=STORAGE_ADDRESS, count=24)
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=self._storage_address, count=24)
         if regs is None:
             return False
         
@@ -393,9 +509,12 @@ class FroniusModbusClient(ExtModbusClient):
         # InBatV_SF: not supported
         # InOutWRte_SF: Scale factor for percent charge/discharge rate. -2
 
-        self.data['grid_charging'] = CHARGE_GRID_STATUS.get(charge_grid_set)
+        if self.is_numeric(max_charge) and max_charge > 0:
+            self.storage_configured = True
+
+        self.data['grid_charging'] = self._map_value(CHARGE_GRID_STATUS, charge_grid_set, 'grid charging')
         #self.data['power'] = power
-        self.data['charge_status'] = CHARGE_STATUS.get(charge_status)
+        self.data['charge_status'] = self._map_value(CHARGE_STATUS, charge_status, 'charge status')
         self.data['minimum_reserve'] =  self.calculate_value(minimum_reserve, -2, 2, 0, 100)
         self.data['discharging_power'] = self.calculate_value(discharge_power, -2, 2, -100, 100)
         self.data['charging_power'] = self.calculate_value(charge_power, -2, 2, -100, 100)
@@ -404,8 +523,9 @@ class FroniusModbusClient(ExtModbusClient):
         self.data['WChaGra'] = self.calculate_value(WChaGra, 0, 0)
         self.data['WDisChaGra'] = self.calculate_value(WDisChaGra, 0, 0)
 
+        mapped_control_mode = self._map_value(STORAGE_CONTROL_MODE, storage_control_mode, 'storage control mode')
         control_mode = self.data.get('control_mode')
-        if control_mode is None or control_mode != STORAGE_CONTROL_MODE.get(storage_control_mode):
+        if control_mode is None or control_mode != mapped_control_mode:
             if discharge_power >= 0:
                 self.data['discharge_limit'] = discharge_power / 100.0 
                 self.data['grid_charge_power'] = 0
@@ -419,7 +539,7 @@ class FroniusModbusClient(ExtModbusClient):
                 self.data['grid_discharge_power'] = (charge_power * -1) / 100.0 
                 self.data['charge_limit'] = 0
 
-            self.data['control_mode'] = STORAGE_CONTROL_MODE.get(storage_control_mode)
+            self.data['control_mode'] = mapped_control_mode
 
         # set extended storage control mode at startup
         ext_control_mode = self.data.get('ext_control_mode')
@@ -440,19 +560,20 @@ class FroniusModbusClient(ExtModbusClient):
                 ext_control_mode = 2
             elif storage_control_mode == 3:
                 ext_control_mode = 3
-            self.data['ext_control_mode'] = STORAGE_EXT_CONTROL_MODE[ext_control_mode]
-            self.storage_extended_control_mode = ext_control_mode
+            if not ext_control_mode is None:
+                self.data['ext_control_mode'] = self._map_value(STORAGE_EXT_CONTROL_MODE, ext_control_mode, 'extended storage mode')
+                self.storage_extended_control_mode = ext_control_mode
 
         if ext_control_mode == 7:
             soc = self.data.get('soc')
             if storage_control_mode == 2 and soc == 100:
                 _LOGGER.error(f'Calibration hit 100%, start discharge')
-                self.change_settings(1, 0, 100, 0)
+                await self.change_settings(1, 0, 100, 0)
             elif storage_control_mode == 3 and soc <= 5: 
                 _LOGGER.error(f'Calibration hit 5%, return to auto mode')
-                self.set_auto_mode()
-                self.set_minimum_reserve(30)
-                self.data['ext_control_mode'] = STORAGE_EXT_CONTROL_MODE[0]
+                await self.set_auto_mode()
+                await self.set_minimum_reserve(30)
+                self.data['ext_control_mode'] = self._map_value(STORAGE_EXT_CONTROL_MODE, 0, 'extended storage mode')
                 self.storage_extended_control_mode = 0
 
         return True
@@ -529,30 +650,51 @@ class FroniusModbusClient(ExtModbusClient):
         if not mode in [0,1,2,3]:
             _LOGGER.error(f'Attempted to set to unsupported storage control mode. Value: {mode}')
             return
-        await self.write_registers(unit_id=self._inverter_unit_id, address=STORAGE_CONTROL_MODE_ADDRESS, payload=[mode])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=self._storage_register_address(3), payload=[mode])
 
     async def set_minimum_reserve(self, minimum_reserve: float):
         if minimum_reserve < 5:
             _LOGGER.error(f'Attempted to set minimum reserve below 5%. Value: {minimum_reserve}')
             return
         minimum_reserve = round(minimum_reserve * 100)
-        await self.write_registers(unit_id=self._inverter_unit_id, address=MINIMUM_RESERVE_ADDRESS, payload=[minimum_reserve])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=self._storage_register_address(5), payload=[minimum_reserve])
+
+    def _get_storage_reference_power_w(self):
+        # Model 124 InWRte/OutWRte are scaled by WChaMax.
+        max_charge = self.data.get('max_charge')
+        if self.is_numeric(max_charge) and max_charge > 0:
+            return max_charge
+
+        if self.is_numeric(self.max_charge_rate_w) and self.is_numeric(self.max_discharge_rate_w):
+            fallback = max(self.max_charge_rate_w, self.max_discharge_rate_w)
+            if fallback > 0:
+                return fallback
+
+        if self.is_numeric(self.max_discharge_rate_w) and self.max_discharge_rate_w > 0:
+            return self.max_discharge_rate_w
+        return None
 
     async def set_discharge_rate_w(self, discharge_rate_w):
-        if discharge_rate_w > self.max_discharge_rate_w:
+        reference_power = self._get_storage_reference_power_w()
+        if not self.is_numeric(reference_power) or reference_power <= 0:
+            _LOGGER.error("Cannot set discharge limit: invalid WChaMax/reference power %s", reference_power)
+            return None
+
+        if discharge_rate_w > reference_power:
             discharge_rate = 100
-        elif discharge_rate_w < self.max_discharge_rate_w * -1:
+        elif discharge_rate_w < reference_power * -1:
             discharge_rate = -100
         else:
-            discharge_rate = discharge_rate_w / self.max_discharge_rate_w * 100
+            discharge_rate = discharge_rate_w / reference_power * 100
         await self.set_discharge_rate(discharge_rate)
+        return discharge_rate
 
     async def set_discharge_rate(self, discharge_rate):
         if discharge_rate < 0:
             discharge_rate = int(65536 + (discharge_rate * 100))
         else:
             discharge_rate = int(round(discharge_rate * 100))
-        await self.write_registers(unit_id=self._inverter_unit_id, address=DISCHARGE_RATE_ADDRESS, payload=[discharge_rate])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=self._storage_register_address(10), payload=[discharge_rate])
 
     async def set_charge_rate_w(self, charge_rate_w):
         if charge_rate_w > self.max_charge_rate_w:
@@ -590,8 +732,9 @@ class FroniusModbusClient(ExtModbusClient):
     async def set_discharge_limit(self, value):
         if self.storage_extended_control_mode in [2,3,7]:
             # only change when discharge limit is used
-            await self.set_discharge_rate_w(value)
-            self.data['discharge_limit'] = value
+            discharge_rate = await self.set_discharge_rate_w(value)
+            if self.is_numeric(discharge_rate):
+                self.data['discharge_limit'] = round(discharge_rate, 2)
         elif self.storage_extended_control_mode in [4,5,6]:
             return
         elif self.storage_extended_control_mode in [0,1]:
@@ -602,7 +745,7 @@ class FroniusModbusClient(ExtModbusClient):
             charge_rate =  int(65536 + (charge_rate * 100))
         else:
             charge_rate = int(round(charge_rate * 100))
-        await self.write_registers(unit_id=self._inverter_unit_id, address=CHARGE_RATE_ADDRESS, payload=[charge_rate])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=self._storage_register_address(11), payload=[charge_rate])
 
     async def change_settings(self, mode, charge_limit, discharge_limit, grid_charge_power=0, grid_discharge_power=0, minimum_reserve=None):
         await self.set_storage_control_mode(mode)

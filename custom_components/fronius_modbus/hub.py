@@ -173,18 +173,18 @@ class Hub:
                     _LOGGER.error(f"Error reading meter data {meter_address}.", exc_info=True)
                     #update_result = False
 
-        if self._client.mppt_configured:
-            try:
-                update_result = await self._client.read_mppt_data()
-            except Exception as e:
-                _LOGGER.exception("Error reading mptt data", exc_info=True)
-                update_result = False
-        
         if self._client.storage_configured:
             try:
                 update_result = await self._client.read_inverter_storage_data()
             except Exception as e:
                 _LOGGER.exception("Error reading inverter storage data", exc_info=True)
+                update_result = False
+
+        if self._client.mppt_configured:
+            try:
+                update_result = await self._client.read_mppt_data()
+            except Exception as e:
+                _LOGGER.exception("Error reading mptt data", exc_info=True)
                 update_result = False
 
 
@@ -261,7 +261,7 @@ class Hub:
 
     @toggle_busy
     async def set_discharge_limit(self, value):
-        await self._client.set_charge_limit(value)
+        await self._client.set_discharge_limit(value)
 
     @toggle_busy
     async def set_grid_charge_power(self, value):

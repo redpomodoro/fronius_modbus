@@ -1,5 +1,5 @@
 SUPPORTED_MANUFACTURERS = ['Fronius']
-SUPPORTED_MODELS = ['Primo GEN24', 'Symo GEN24']
+SUPPORTED_MODELS = ['Primo GEN24', 'Symo GEN24', 'Verto']
 
 COMMON_ADDRESS = 40004
 INVERTER_ADDRESS = 40071
@@ -74,8 +74,8 @@ FRONIUS_INVERTER_STATUS = {
 }
 
 CHARGE_GRID_STATUS = {
-    1: 'Disabled',
-    2: 'Enabled',
+    0: 'Disabled',
+    1: 'Enabled',
 }
 
 GRID_STATUS = {
