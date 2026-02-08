@@ -16,7 +16,7 @@ CONF_INVERTER_UNIT_ID = 'inverter_modbus_unit_id'
 CONF_METER_UNIT_ID = 'meter_modbus_unit_id'
 ATTR_MANUFACTURER = 'Fronius'
 SUPPORTED_MANUFACTURERS = ['Fronius']
-SUPPORTED_MODELS = ['Primo GEN24', 'Symo GEN24']
+SUPPORTED_MODELS = ['Primo GEN24', 'Symo GEN24', 'Verto']
 
 STORAGE_EXT_CONTROL_MODE = {
     0: 'Auto',
@@ -81,6 +81,13 @@ INVERTER_SYMO_SENSOR_TYPES = {
     'PPVphAB': ['AC voltage L1-L2', 'PPVphAB', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
     'PPVphBC': ['AC voltage L2-L3', 'PPVphBC', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
     'PPVphCA': ['AC voltage L3-L1', 'PPVphCA', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
+}
+
+INVERTER_MPPT_EXT_SENSOR_TYPES = {
+    'mppt3_power': ['MPPT3 power', 'mppt3_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:solar-power', None],
+    'mppt4_power': ['MPPT4 power', 'mppt4_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:solar-power', None],
+    'mppt3_lfte': ['MPPT3 lifetime energy', 'mppt3_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:solar-panel', None],
+    'mppt4_lfte': ['MPPT4 lifetime energy', 'mppt4_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:solar-panel', None],
 }
 
 INVERTER_STORAGE_SENSOR_TYPES = {
