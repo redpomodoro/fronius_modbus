@@ -407,16 +407,16 @@ class FroniusModbusClient(ExtModbusClient):
         control_mode = self.data.get('control_mode')
         if control_mode is None or control_mode != STORAGE_CONTROL_MODE.get(storage_control_mode):
             if discharge_power >= 0:
-                self.data['discharge_limit'] = discharge_power / 100.0 
+                self.data['discharge_limit'] = discharge_power / 100.0
                 self.data['grid_charge_power'] = 0
-            else: 
-                self.data['grid_charge_power'] = (discharge_power * -1) / 100.0 
+            else:
+                self.data['grid_charge_power'] = (discharge_power * -1) / 100.0
                 self.data['discharge_limit'] = 0
             if charge_power >= 0:
-                self.data['charge_limit'] = charge_power / 100 
+                self.data['charge_limit'] = charge_power / 100.0
                 self.data['grid_discharge_power'] = 0
-            else: 
-                self.data['grid_discharge_power'] = (charge_power * -1) / 100.0 
+            else:
+                self.data['grid_discharge_power'] = (charge_power * -1) / 100.0
                 self.data['charge_limit'] = 0
 
             self.data['control_mode'] = STORAGE_CONTROL_MODE.get(storage_control_mode)
