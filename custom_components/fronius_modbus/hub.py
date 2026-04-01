@@ -28,7 +28,7 @@ class Hub:
         self._hass = hass
         self._name = name
 
-        self._id = f'{name.lower()}_{host.lower().replace('.','')}'
+        self._id = f"{name.lower()}_{host.lower().replace('.', '')}"
         self.online = True        
 
         self._client = FroniusModbusClient(host=host, port=port, inverter_unit_id=inverter_unit_id, meter_unit_ids=meter_unit_ids, timeout=max(3, (scan_interval - 1)))
@@ -78,8 +78,8 @@ class Hub:
     @property 
     def device_info_storage(self) -> dict:
         return {
-            "identifiers": {(DOMAIN, f'{self._name}_battery_storage')},
-            "name": f'{self._client.data.get('s_model')}',
+            "identifiers": {(DOMAIN, f"{self._id}_battery_storage")},
+            "name": self._client.data.get('s_model'),
             "manufacturer": self._client.data.get('s_manufacturer'),
             "model": self._client.data.get('s_model'),
             "serial_number": self._client.data.get('s_serial'),
@@ -88,8 +88,8 @@ class Hub:
     @property 
     def device_info_inverter(self) -> dict:
         return {
-            "identifiers": {(DOMAIN, f'{self._name}_inverter')},
-            "name": f'Fronius {self._client.data.get('i_model')}',
+            "identifiers": {(DOMAIN, f"{self._id}_inverter")},
+            "name": f"Fronius {self._client.data.get('i_model')}",
             "manufacturer": self._client.data.get('i_manufacturer'),
             "model": self._client.data.get('i_model'),
             "serial_number": self._client.data.get('i_serial'),
@@ -99,7 +99,7 @@ class Hub:
     
     def get_device_info_meter(self, id) -> dict:
          return {
-            "identifiers": {(DOMAIN, f'{self._name}_meter{id}')},
+            "identifiers": {(DOMAIN, f"{self._id}_meter{id}")},
             "name": f'Fronius {self._client.data.get(f'm{id}_model')} {self._client.data.get(f'm{id}_options')}',
             "manufacturer": self._client.data.get(f'm{id}_manufacturer'),
             "model": self._client.data.get(f'm{id}_model'),
@@ -166,9 +166,9 @@ class Hub:
             update_result = False
 
         if self._client.meter_configured:
-            for meter_address in self._client._meter_unit_ids:
+            for meter_index, meter_address in enumerate(self._client.meter_unit_ids, start=1):
                 try:
-                    update_result = await self._client.read_meter_data(meter_prefix="m1_", unit_id=meter_address)
+                    update_result = await self._client.read_meter_data(meter_prefix=f"m{meter_index}_", unit_id=meter_address)
                 except Exception as e:
                     _LOGGER.error(f"Error reading meter data {meter_address}.", exc_info=True)
                     #update_result = False
@@ -213,6 +213,10 @@ class Hub:
     @property
     def meter_configured(self):
         return self._client.meter_configured
+
+    @property
+    def meter_unit_ids(self):
+        return self._client.meter_unit_ids
 
     @property
     def storage_configured(self):
@@ -261,7 +265,7 @@ class Hub:
 
     @toggle_busy
     async def set_discharge_limit(self, value):
-        await self._client.set_charge_limit(value)
+        await self._client.set_discharge_limit(value)
 
     @toggle_busy
     async def set_grid_charge_power(self, value):
@@ -270,5 +274,3 @@ class Hub:
     @toggle_busy
     async def set_grid_discharge_power(self, value):
         await self._client.set_grid_discharge_power(value)
-
-

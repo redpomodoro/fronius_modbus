@@ -23,6 +23,13 @@ Manual installation
 Copy contents of custom_components folder to your home-assistant config/custom_components folder.
 After reboot of Home-Assistant, this integration can be configured through the integration setup UI.
 
+## Multiple Inverters
+
+You can add multiple Fronius Modbus config entries in Home Assistant for separate inverters.
+Entity and device identifiers are now scoped per configured hub, so multiple inverters can coexist without colliding in the entity registry.
+
+This behavior builds on the original idea from [PR #36](https://github.com/redpomodoro/fronius_modbus/pull/36) by @larsxschneider.
+
 Make sure modbus is enabled on the inverter. You can check by going into the web interface of the inverter and go to:
 "Communication" -> "Modbus"
 

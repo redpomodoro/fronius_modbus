@@ -70,21 +70,22 @@ async def async_setup_entry(
         entities.append(sensor)
 
     if hub.meter_configured:
-        meter_id = '1'
-        for sensor_info in METER_SENSOR_TYPES.values():
-            sensor = FroniusModbusSensor(
-                platform_name = ENTITY_PREFIX,
-                hub = hub,
-                device_info = hub.get_device_info_meter(meter_id),
-                name = f'Meter {meter_id} ' + sensor_info[0],
-                key = f'm{meter_id}_' + sensor_info[1],
-                device_class = sensor_info[2],
-                state_class = sensor_info[3],
-                unit = sensor_info[4],
-                icon = sensor_info[5],
-                entity_category = sensor_info[6],
-            )
-            entities.append(sensor)        
+        for meter_index, _meter_unit_id in enumerate(hub.meter_unit_ids, start=1):
+            meter_id = str(meter_index)
+            for sensor_info in METER_SENSOR_TYPES.values():
+                sensor = FroniusModbusSensor(
+                    platform_name = ENTITY_PREFIX,
+                    hub = hub,
+                    device_info = hub.get_device_info_meter(meter_id),
+                    name = f'Meter {meter_id} ' + sensor_info[0],
+                    key = f'm{meter_id}_' + sensor_info[1],
+                    device_class = sensor_info[2],
+                    state_class = sensor_info[3],
+                    unit = sensor_info[4],
+                    icon = sensor_info[5],
+                    entity_category = sensor_info[6],
+                )
+                entities.append(sensor)
 
     if hub.storage_configured:
         for sensor_info in INVERTER_STORAGE_SENSOR_TYPES.values():
@@ -141,7 +142,6 @@ class FroniusModbusSensor(FroniusModbusBaseEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         return None
-
 
 
 
