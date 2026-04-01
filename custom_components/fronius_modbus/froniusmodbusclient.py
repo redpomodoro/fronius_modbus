@@ -104,6 +104,10 @@ class FroniusModbusClient(ExtModbusClient):
         _LOGGER.debug(f"Init done. data: {self.data}")
 
         return True
+
+    @property
+    def meter_unit_ids(self):
+        return self._meter_unit_ids
     
     def get_json_storage_info(self):
         self.data['s_manufacturer'] = None
