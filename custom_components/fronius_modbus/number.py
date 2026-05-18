@@ -53,18 +53,25 @@ async def async_setup_entry(hass, config_entry, async_add_entities) -> None:
 class FroniusModbusNumber(FroniusModbusBaseEntity, NumberEntity):
     """Representation of an Battery Storage Modbus number."""
 
+    def _rate_to_power_w(self, value):
+        if self._key in ['grid_discharge_power','discharge_limit']:
+            return round(value / 100.0 * self._hub.max_discharge_rate_w,0)
+        if self._key in ['grid_charge_power','charge_limit']:
+            return round(value / 100.0 * self._hub.max_charge_rate_w,0)
+        return value
+
     @property
-    def state(self):
-        """Return the state of the sensor."""
+    def native_value(self) -> float:
+        """Return the number value in its native unit."""
 
         if self._key in self._hub.data:
-            if self._key in ['grid_discharge_power','discharge_limit']:
-                value = round(self._hub.data[self._key] / 100.0 * self._hub.max_discharge_rate_w,0)
-            elif self._key in ['grid_charge_power','charge_limit']:
-                value = round(self._hub.data[self._key] / 100.0 * self._hub.max_charge_rate_w,0)
-            else:
-                value = self._hub.data[self._key]    
-            return value
+            return self._rate_to_power_w(self._hub.data[self._key])
+
+    @property
+    def state(self):
+        """Return the state of the number."""
+
+        return self.native_value
 
     # @property
     # def native_value(self) -> float:
@@ -91,7 +98,6 @@ class FroniusModbusNumber(FroniusModbusBaseEntity, NumberEntity):
             await self._hub.set_grid_discharge_power(value)
 
         #_LOGGER.debug(f"Number {self._key} set to {value}")
-        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:

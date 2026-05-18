@@ -57,7 +57,3 @@ class FroniusModbusSelect(FroniusModbusBaseEntity, SelectEntity):
         new_mode = get_key(self._options_dict, option)
 
         await self._hub.set_mode(new_mode)
-
-        self._hub.data[self._key] = option
-        #self._hub.storage_extended_control_mode = new_mode
-        self.async_write_ha_state()

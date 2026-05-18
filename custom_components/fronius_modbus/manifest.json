@@ -8,5 +8,5 @@
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/redpomodoro/fronius_modbus/issues",
     "requirements": ["pymodbus>=3.11.1"],
-    "version": "0.1.9"
+    "version": "0.1.9-bgewehr1"
   }
