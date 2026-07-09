@@ -1,27 +1,38 @@
-SUPPORTED_MANUFACTURERS = ['Fronius']
-SUPPORTED_MODELS = ['Primo GEN24', 'Symo GEN24']
+# Sunspec starting address
+SUNSPEC_START_ADDRESS = 40000
 
-COMMON_ADDRESS = 40004
-INVERTER_ADDRESS = 40071
-NAMEPLATE_ADDRESS = 40123
-MPPT_ADDRESS = 40255
-METER_ADDRESS = 40071
-STORAGE_ADDRESS = 40345
-STORAGE_CONTROL_MODE_ADDRESS = 40348
-MINIMUM_RESERVE_ADDRESS = 40350
-DISCHARGE_RATE_ADDRESS = 40355
-CHARGE_RATE_ADDRESS = 40356
+# Sunspec model IDs
+SUNSPEC_COMMON_MODEL = 1
+SUNSPEC_INVERTER_MODEL_101 = 101
+SUNSPEC_INVERTER_MODEL_103 = 103
+SUNSPEC_NAMEPLATE_MODEL = 120
+SUNSPEC_SETTINGS_MODEL = 121
+SUNSPEC_STATUS_MODEL = 122
+SUNSPEC_CONTROLS_MODEL = 123
+SUNSPEC_STORAGE_MODEL = 124
+SUNSPEC_MPPT_MODEL = 160
+SUNSPEC_METER_MODEL_201 = 201
+SUNSPEC_METER_MODEL_202 = 202
+SUNSPEC_METER_MODEL_203 = 203
+SUNSPEC_METER_MODEL_204 = 204
+SUNSPEC_END_MODEL = 65535
 
-    # Manufacturer
-    # Type
-    # Firmware
-    # Serial
+# MPPT model offsets
+MPPT_HEADER_LENGTH = 8
+MPPT_MODULE_LENGTH = 20
 
+# Storage model write offsets
+STORAGE_CONTROL_MODE_OFFSET = 3
+MINIMUM_RESERVE_OFFSET = 5
+DISCHARGE_RATE_OFFSET = 10
+CHARGE_RATE_OFFSET = 11
+
+# Dictionaries
 STORAGE_CONTROL_MODE = {
     0: 'Auto',
     1: 'Charge',
     2: 'Discharge',
-    3: 'Change and Discharge',
+    3: 'Charge and Discharge',
 }
 
 CHARGE_STATUS = {
@@ -111,11 +122,10 @@ CONTROL_STATUS = {
 STORAGE_EXT_CONTROL_MODE = {
     0: 'Auto',
     1: 'PV Charge Limit',
-    2: 'Discharge Limit',
-    3: 'PV Charge and Discharge Limit',
+    2: 'Load Discharge Limit',
+    3: 'PV Charge and Load Discharge Limit',
     4: 'Charge from Grid',
     5: 'Discharge to Grid',
     6: 'Block Discharging',
     7: 'Block Charging',
-#    8: 'Calibrate',
 }

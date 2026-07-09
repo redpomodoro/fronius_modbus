@@ -30,7 +30,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: HubConfigEntry) -> bool:
 
     name = entry.data[CONF_NAME]
     host = entry.data[CONF_HOST]
-    name = entry.data[CONF_NAME]
     port = entry.data[CONF_PORT]
     inverter_unit_id = entry.data.get(CONF_INVERTER_UNIT_ID, 1)
     meter_unit_ids = [entry.data.get(CONF_METER_UNIT_ID, 1)]
@@ -57,15 +56,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     return unload_ok
-
-async def reload_service_handler(service: ServiceCall) -> None:
-    """Remove all user-defined groups and load new ones from config."""
-    conf = None
-    with contextlib.suppress(HomeAssistantError):
-        conf = await async_integration_yaml_config(hass, DOMAIN)
-    if conf is None:
-        return
-    await async_reload_integration_platforms(hass, DOMAIN, PLATFORMS)
-    _async_setup_shared_data(hass)
-    await _async_process_config(hass, conf)    
-

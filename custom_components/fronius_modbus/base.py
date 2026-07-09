@@ -37,7 +37,7 @@ class FroniusModbusBaseEntity():
 
         self._attr_has_entity_name = True
         self._attr_name = name
-        self._attr_unique_id = f"{self._platform_name}_{self._key}"
+        self._attr_unique_id = f"{self._platform_name}_{self._hub._name}_{self._key}"
         self._attr_device_info = device_info
 
     async def async_added_to_hass(self):

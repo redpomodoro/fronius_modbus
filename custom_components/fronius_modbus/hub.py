@@ -21,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 class Hub:
     """Hub for Fronius Battery Storage Modbus Interface"""
 
-    PYMODBUS_VERSION = '3.11.1'
+    PYMODBUS_VERSION = '3.13.1'
 
     def __init__(self, hass: HomeAssistant, name: str, host: str, port: int, inverter_unit_id: int, meter_unit_ids, scan_interval: int) -> None:
         """Init hub."""
@@ -166,9 +166,9 @@ class Hub:
             update_result = False
 
         if self._client.meter_configured:
-            for meter_address in self._client._meter_unit_ids:
+            for i, meter_address in enumerate(self._client._meter_unit_ids):
                 try:
-                    update_result = await self._client.read_meter_data(meter_prefix="m1_", unit_id=meter_address)
+                    update_result = await self._client.read_meter_data(meter_prefix=f"m{i+1}_", unit_id=meter_address)
                 except Exception as e:
                     _LOGGER.error(f"Error reading meter data {meter_address}.", exc_info=True)
                     #update_result = False
@@ -205,6 +205,18 @@ class Hub:
         """Disconnect client."""
         #with self._lock:
         self._client.close()
+
+    @property
+    def meter_unit_ids(self):
+        return self._client._meter_unit_ids
+
+    @property
+    def sunspec_meter_models(self):
+        return self._client.sunspec_meter_models
+
+    @property
+    def num_mppt_modules(self):
+        return self._client.num_mppt_modules
 
     @property
     def data(self):
@@ -248,27 +260,24 @@ class Hub:
             await self._client.set_block_discharge_mode()
         elif mode == 7:
             await self._client.set_block_charge_mode()
-        elif mode == 8:
-            await self._client.set_calibrate_mode()
+
 
     @toggle_busy
-    async def set_minimum_reserve(self, value):
-        await self._client.set_minimum_reserve(value)
+    async def set_storage_minimum_reserve(self, value):
+        await self._client.set_storage_minimum_reserve(value)
 
     @toggle_busy
-    async def set_charge_limit(self, value):
-        await self._client.set_charge_limit(value)
+    async def set_storage_charge_limit(self, value):
+        await self._client.set_storage_charge_limit(value)
 
     @toggle_busy
-    async def set_discharge_limit(self, value):
-        await self._client.set_charge_limit(value)
+    async def set_storage_discharge_limit(self, value):
+        await self._client.set_storage_discharge_limit(value)
 
     @toggle_busy
-    async def set_grid_charge_power(self, value):
-        await self._client.set_grid_charge_power(value)
+    async def set_storage_grid_charge_power(self, value):
+        await self._client.set_storage_grid_charge_power(value)
            
     @toggle_busy
-    async def set_grid_discharge_power(self, value):
-        await self._client.set_grid_discharge_power(value)
-
-
+    async def set_storage_grid_discharge_power(self, value):
+        await self._client.set_storage_grid_discharge_power(value)

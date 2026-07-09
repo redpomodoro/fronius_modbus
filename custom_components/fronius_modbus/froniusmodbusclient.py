@@ -9,16 +9,31 @@ from .extmodbusclient import ExtModbusClient
 import requests
 
 from .froniusmodbusclient_const import (
-    INVERTER_ADDRESS,
-    MPPT_ADDRESS,
-    COMMON_ADDRESS,
-    NAMEPLATE_ADDRESS,
-    STORAGE_ADDRESS,
-    METER_ADDRESS,
-    STORAGE_CONTROL_MODE_ADDRESS,
-    MINIMUM_RESERVE_ADDRESS,
-    DISCHARGE_RATE_ADDRESS,
-    CHARGE_RATE_ADDRESS,    
+    # Sunspec models
+    SUNSPEC_START_ADDRESS,
+    SUNSPEC_COMMON_MODEL,
+    SUNSPEC_INVERTER_MODEL_101,
+    SUNSPEC_INVERTER_MODEL_103,
+    SUNSPEC_NAMEPLATE_MODEL,
+    SUNSPEC_SETTINGS_MODEL,
+    SUNSPEC_STATUS_MODEL,
+    SUNSPEC_CONTROLS_MODEL,
+    SUNSPEC_STORAGE_MODEL,
+    SUNSPEC_MPPT_MODEL,
+    SUNSPEC_METER_MODEL_201,
+    SUNSPEC_METER_MODEL_202,
+    SUNSPEC_METER_MODEL_203,
+    SUNSPEC_METER_MODEL_204,
+    SUNSPEC_END_MODEL,
+    # MPPT offsets
+    MPPT_HEADER_LENGTH,
+    MPPT_MODULE_LENGTH,
+    # Storage offsets
+    STORAGE_CONTROL_MODE_OFFSET,
+    MINIMUM_RESERVE_OFFSET,
+    DISCHARGE_RATE_OFFSET,
+    CHARGE_RATE_OFFSET,
+    # Dictionaries
     STORAGE_CONTROL_MODE,
     CHARGE_STATUS,
     CHARGE_GRID_STATUS,
@@ -30,8 +45,6 @@ from .froniusmodbusclient_const import (
     INVERTER_EVENTS,
     CONTROL_STATUS,
     GRID_STATUS,
-#    INVERTER_STATUS,
-#    CONNECTION_STATUS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +65,8 @@ class FroniusModbusClient(ExtModbusClient):
         self.mppt_configured = False
         self.storage_configured = False
         self.storage_extended_control_mode = 0
+        self.mppt_block_length = 0
+        self.num_mppt_modules = 0
         self.max_charge_rate_w = 11000
         self.max_discharge_rate_w = 11000
         self._grid_frequency = 50
@@ -62,9 +77,120 @@ class FroniusModbusClient(ExtModbusClient):
         self._inverter_frequency_upper_bound = self._grid_frequency + 5
 
         self.data = {}
+        self.sunspec_models = {}
+        self.sunspec_meter_models = {}
+
+    async def _discover_sunspec_models(self):
+        """Discovers all sunspec models"""
+        # find SunS marker
+        suns_marker = await self.get_registers(unit_id=self._inverter_unit_id, address=SUNSPEC_START_ADDRESS, count=2)
+        if suns_marker is None:
+            _LOGGER.error(f"Could not find suns_marker at address {SUNSPEC_START_ADDRESS}")
+            return
+        
+        if self.get_string_from_registers(suns_marker) != "SunS":
+            _LOGGER.error(f"No SunS marker found at address {SUNSPEC_START_ADDRESS}")
+            return
+        else:
+            _LOGGER.debug(f"Found SunS marker at address {SUNSPEC_START_ADDRESS}")
+
+        # read common model
+        offset = SUNSPEC_START_ADDRESS + 2
+        model_id_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=offset, count=1)
+        model_len_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=offset+1, count=1)
+        if not model_id_regs or not model_len_regs:
+            _LOGGER.error(f"Could not read common model details at address {offset}")
+            return
+        model_id = model_id_regs[0]
+        model_len = model_len_regs[0]
+
+        if model_id != SUNSPEC_COMMON_MODEL:
+            _LOGGER.error(f"Expected common model not found at address {offset}")
+            return
+        else:
+            _LOGGER.debug(f"Found common model at address {offset} with length {model_len}")
+        
+        self.sunspec_models[model_id] = {'address': offset, 'len': model_len}
+        
+        offset += model_len + 2
+
+        # discover all other models
+        while model_id != SUNSPEC_END_MODEL:
+            model_id_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=offset, count=1)
+            model_len_regs = await self.get_registers(unit_id=self._inverter_unit_id, address=offset+1, count=1)
+            if not model_id_regs or not model_len_regs:
+                _LOGGER.error(f"Could not read model details at address {offset}")
+                break
+            model_id = model_id_regs[0]
+            model_len = model_len_regs[0]
+            
+            if model_id != SUNSPEC_END_MODEL:
+                _LOGGER.debug(f"Found model {model_id} at address {offset} with length {model_len}")
+                self.sunspec_models[model_id] = {'address': offset, 'len': model_len}
+
+            offset += model_len + 2
+        
+        _LOGGER.debug(f"Finished sunspec discovery, found models: {self.sunspec_models}")
+
+    async def _discover_meter_models(self):
+        """Discovers all sunspec models for all configured meters"""
+        for meter_unit_id in self._meter_unit_ids:
+            # find SunS marker
+            suns_marker = await self.get_registers(unit_id=meter_unit_id, address=SUNSPEC_START_ADDRESS, count=2)
+            if suns_marker is None:
+                _LOGGER.error(f"Could not find suns_marker for meter {meter_unit_id} at address {SUNSPEC_START_ADDRESS}")
+                continue
+            
+            if self.get_string_from_registers(suns_marker) != "SunS":
+                _LOGGER.error(f"No SunS marker found for meter {meter_unit_id} at address {SUNSPEC_START_ADDRESS}")
+                continue
+            else:
+                _LOGGER.debug(f"Found SunS marker for meter {meter_unit_id} at address {SUNSPEC_START_ADDRESS}")
+
+            # read common model
+            offset = SUNSPEC_START_ADDRESS + 2
+            model_id_regs = await self.get_registers(unit_id=meter_unit_id, address=offset, count=1)
+            model_len_regs = await self.get_registers(unit_id=meter_unit_id, address=offset+1, count=1)
+            if not model_id_regs or not model_len_regs:
+                _LOGGER.error(f"Could not read common model details for meter {meter_unit_id} at address {offset}")
+                continue
+            model_id = model_id_regs[0]
+            model_len = model_len_regs[0]
+
+            if model_id != SUNSPEC_COMMON_MODEL:
+                _LOGGER.error(f"Expected common model not found for meter {meter_unit_id} at address {offset}")
+                continue
+            else:
+                _LOGGER.debug(f"Found common model for meter {meter_unit_id} at address {offset} with length {model_len}")
+            
+            self.sunspec_meter_models[meter_unit_id] = {}
+            self.sunspec_meter_models[meter_unit_id][model_id] = {'address': offset, 'len': model_len}
+            
+            offset += model_len + 2
+
+            # discover all other models
+            while model_id != SUNSPEC_END_MODEL:
+                model_id_regs = await self.get_registers(unit_id=meter_unit_id, address=offset, count=1)
+                model_len_regs = await self.get_registers(unit_id=meter_unit_id, address=offset+1, count=1)
+                if not model_id_regs or not model_len_regs:
+                    _LOGGER.error(f"Could not read model details for meter {meter_unit_id} at address {offset}")
+                    break
+                model_id = model_id_regs[0]
+                model_len = model_len_regs[0]
+                
+                if model_id != SUNSPEC_END_MODEL:
+                    _LOGGER.debug(f"Found model {model_id} for meter {meter_unit_id} at address {offset} with length {model_len}")
+                    self.sunspec_meter_models[meter_unit_id][model_id] = {'address': offset, 'len': model_len}
+
+                offset += model_len + 2
+            
+            _LOGGER.debug(f"Finished sunspec discovery for meter {meter_unit_id}, found models: {self.sunspec_meter_models[meter_unit_id]}")
 
     async def init_data(self):
         await self.connect()
+        
+        await self._discover_sunspec_models()
+
         try: 
             result = await self.read_device_info_data(prefix='i_', unit_id=self._inverter_unit_id)
         except Exception as e:
@@ -74,17 +200,37 @@ class FroniusModbusClient(ExtModbusClient):
             _LOGGER.error(f"Empty inverter info {self._host}:{self._port} unit id: {self._inverter_unit_id}")
             raise Exception(f"Empty inverter info unit id: {self._inverter_unit_id}")
 
-        try:
-            if await self.read_mppt_data():
-                self.mppt_configured = True
-        except Exception as e:
-            _LOGGER.warning(f"Error while checking mppt data {e}")
+        if SUNSPEC_MPPT_MODEL in self.sunspec_models:
+            self.mppt_configured = True
+            mppt_model = self.sunspec_models[SUNSPEC_MPPT_MODEL]
+            try:
+                # get number of mppt modules, offset 8 in mppt model
+                num_mppt_modules_reg = await self.get_registers(unit_id=self._inverter_unit_id, address=mppt_model['address'] + 2 + 6, count=1)
+                if num_mppt_modules_reg:
+                    self.num_mppt_modules = num_mppt_modules_reg[0]
+                    self.mppt_block_length = mppt_model['len']
+                    _LOGGER.debug(f"Detected {self.num_mppt_modules} MPPT modules, block length is {self.mppt_block_length}")
+                    if self.mppt_block_length != (MPPT_HEADER_LENGTH + self.num_mppt_modules * MPPT_MODULE_LENGTH):
+                        _LOGGER.warning(
+                            f"MPPT block length ({self.mppt_block_length}) does not match the expected length for {self.num_mppt_modules} modules. "
+                            f"Expected {MPPT_HEADER_LENGTH + self.num_mppt_modules * MPPT_MODULE_LENGTH}. "
+                        )
+                        max_safe = max(0, (self.mppt_block_length - MPPT_HEADER_LENGTH) // MPPT_MODULE_LENGTH)
+                        self.num_mppt_modules = min(self.num_mppt_modules, max_safe)
+                else:
+                    _LOGGER.warning("Could not read number of MPPT modules. Using defaults.")
+                    self.num_mppt_modules = 0
+                    self.mppt_block_length = 0
+            except Exception as e:
+                _LOGGER.warning(f"Error while determining MPPT modules: {e}. Using defaults.")
+                self.num_mppt_modules = 0
+                self.mppt_block_length = 0
 
-        if len(self._meter_unit_ids)>5:
-            _LOGGER.error(f"Too many meters configured, max 5")
-            return
-        #elif len(self._meter_unit_ids)>0:
-        #    self.meter_configured = True
+        if SUNSPEC_STORAGE_MODEL in self.sunspec_models:
+            self.storage_configured = True
+            _LOGGER.debug(f"Storage is configured")
+
+        await self._discover_meter_models()
 
         for i in range(len(self._meter_unit_ids)):
             unit_id = self._meter_unit_ids[i]
@@ -143,7 +289,12 @@ class FroniusModbusClient(ExtModbusClient):
             _LOGGER.error(f"Error storage json data {url} {e}", exc_info=True)
 
     async def read_device_info_data(self, prefix, unit_id):
-        regs = await self.get_registers(unit_id=unit_id, address=COMMON_ADDRESS, count=65)
+        if unit_id in self.sunspec_meter_models:
+            common_model = self.sunspec_meter_models[unit_id][SUNSPEC_COMMON_MODEL]
+        else:
+            common_model = self.sunspec_models[SUNSPEC_COMMON_MODEL]
+
+        regs = await self.get_registers(unit_id=unit_id, address=common_model['address'] + 2, count=65)
         if regs is None:
             return False
 
@@ -164,7 +315,15 @@ class FroniusModbusClient(ExtModbusClient):
         return True
 
     async def read_inverter_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=INVERTER_ADDRESS, count=50)
+        if SUNSPEC_INVERTER_MODEL_101 in self.sunspec_models:
+            inverter_model = self.sunspec_models[SUNSPEC_INVERTER_MODEL_101]
+        elif SUNSPEC_INVERTER_MODEL_103 in self.sunspec_models:
+            inverter_model = self.sunspec_models[SUNSPEC_INVERTER_MODEL_103]
+        else:
+            _LOGGER.warning("No inverter model found")
+            return False
+
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=inverter_model['address'] + 2, count=inverter_model['len'])
         if regs is None:
             return False
 
@@ -202,7 +361,11 @@ class FroniusModbusClient(ExtModbusClient):
         self.data["line_frequency"] = self.calculate_value(Hz, Hz_SF, 2, 0, 100)
         self.data["acenergy"] = self.calculate_value(WH, WH_SF) 
         #self.data["status"] = INVERTER_STATUS[St]
-        self.data["statusvendor"] = FRONIUS_INVERTER_STATUS[StVnd]
+        status_vendor = FRONIUS_INVERTER_STATUS.get(StVnd)
+        if status_vendor is None:
+            _LOGGER.warning(f"Unknown inverter status {StVnd}")
+            status_vendor = "Unknown"
+        self.data["statusvendor"] = status_vendor
         self.data["statusvendor_id"] = StVnd
         #self.data["events1"] = self.bitmask_to_string(EvtVnd1,INVERTER_EVENTS,default='None',bits=32)  
         self.data["events2"] = self.bitmask_to_string(EvtVnd2,INVERTER_EVENTS,default='None',bits=32)  
@@ -211,7 +374,13 @@ class FroniusModbusClient(ExtModbusClient):
 
     async def read_inverter_nameplate_data(self):
         """start reading storage data"""
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=NAMEPLATE_ADDRESS, count=120)
+        if SUNSPEC_NAMEPLATE_MODEL in self.sunspec_models:
+            nameplate_model = self.sunspec_models[SUNSPEC_NAMEPLATE_MODEL]
+        else:
+            _LOGGER.warning("No nameplate model found")
+            return False
+
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=nameplate_model['address'] + 2, count=nameplate_model['len'])
         if regs is None:
             return False
 
@@ -224,7 +393,7 @@ class FroniusModbusClient(ExtModbusClient):
         # MaxDisChaRte: Maximum rate of energy transfer out of the storage device.
         MaxDisChaRte = self._client.convert_from_registers(regs[23:24], data_type = self._client.DATATYPE.UINT16)
 
-        if DERTyp == 82:
+        if DERTyp == 82 and SUNSPEC_STORAGE_MODEL in self.sunspec_models:
             self.storage_configured = True
         self.data['WHRtg'] = WHRtg
         self.data['MaxChaRte'] = MaxChaRte
@@ -236,7 +405,10 @@ class FroniusModbusClient(ExtModbusClient):
         return True
 
     async def read_inverter_status_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=40183, count=44)
+        if SUNSPEC_STATUS_MODEL not in self.sunspec_models:
+            return False
+        status_model = self.sunspec_models[SUNSPEC_STATUS_MODEL]
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=status_model['address'] + 2, count=status_model['len'])
         if regs is None:
             return False
 
@@ -246,15 +418,32 @@ class FroniusModbusClient(ExtModbusClient):
 
         StActCtl = self._client.convert_from_registers(regs[33:35], data_type = self._client.DATATYPE.UINT32)
         
-        self.data['pv_connection'] = CONNECTION_STATUS_CONDENSED[PVConn]
-        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED[StorConn] 
-        self.data['ecp_connection'] = ECP_CONNECTION_STATUS[ECPConn]
+        pv_connection = CONNECTION_STATUS_CONDENSED.get(PVConn)
+        if pv_connection is None:
+            _LOGGER.warning(f"Unknown pv connection status {PVConn}")
+            pv_connection = "Unknown"
+        self.data['pv_connection'] = pv_connection
+
+        storage_connection = CONNECTION_STATUS_CONDENSED.get(StorConn)
+        if storage_connection is None:
+            _LOGGER.warning(f"Unknown storage connection status {StorConn}")
+            storage_connection = "Unknown"
+        self.data['storage_connection'] = storage_connection
+
+        ecp_connection = ECP_CONNECTION_STATUS.get(ECPConn)
+        if ecp_connection is None:
+            _LOGGER.warning(f"Unknown ecp connection status {ECPConn}")
+            ecp_connection = "Unknown"
+        self.data['ecp_connection'] = ecp_connection
         self.data['inverter_controls'] = self.bitmask_to_string(StActCtl, INVERTER_CONTROLS, 'Normal')  
 
         return True
 
     async def read_inverter_model_settings_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=40151, count=30)
+        if SUNSPEC_SETTINGS_MODEL not in self.sunspec_models:
+            return False
+        settings_model = self.sunspec_models[SUNSPEC_SETTINGS_MODEL]
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=settings_model['address'] + 2, count=settings_model['len'])
         if regs is None:
             return False
 
@@ -273,7 +462,10 @@ class FroniusModbusClient(ExtModbusClient):
         return True
 
     async def read_inverter_controls_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=40229, count=24)
+        if SUNSPEC_CONTROLS_MODEL not in self.sunspec_models:
+            return False
+        controls_model = self.sunspec_models[SUNSPEC_CONTROLS_MODEL]
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=controls_model['address'] + 2, count=controls_model['len'])
         if regs is None:
             return False
 
@@ -282,76 +474,105 @@ class FroniusModbusClient(ExtModbusClient):
         OutPFSet_Ena = self._client.convert_from_registers(regs[12:13], data_type = self._client.DATATYPE.UINT16)
         VArPct_Ena = self._client.convert_from_registers(regs[20:21], data_type = self._client.DATATYPE.INT16)
 
-        self.data['Conn'] = CONTROL_STATUS[Conn]
-        self.data['WMaxLim_Ena'] = CONTROL_STATUS[WMaxLim_Ena]
-        self.data['OutPFSet_Ena'] = CONTROL_STATUS[OutPFSet_Ena]
-        self.data['VArPct_Ena'] = CONTROL_STATUS[VArPct_Ena]
+        conn_status = CONTROL_STATUS.get(Conn)
+        if conn_status is None:
+            _LOGGER.warning(f"Unknown control status {Conn}")
+            conn_status = "Unknown"
+        self.data['Conn'] = conn_status
+
+        wmaxlim_ena_status = CONTROL_STATUS.get(WMaxLim_Ena)
+        if wmaxlim_ena_status is None:
+            _LOGGER.warning(f"Unknown control status {WMaxLim_Ena}")
+            wmaxlim_ena_status = "Unknown"
+        self.data['WMaxLim_Ena'] = wmaxlim_ena_status
+
+        outpfset_ena_status = CONTROL_STATUS.get(OutPFSet_Ena)
+        if outpfset_ena_status is None:
+            _LOGGER.warning(f"Unknown control status {OutPFSet_Ena}")
+            outpfset_ena_status = "Unknown"
+        self.data['OutPFSet_Ena'] = outpfset_ena_status
+
+        varpct_ena_status = CONTROL_STATUS.get(VArPct_Ena)
+        if varpct_ena_status is None:
+            _LOGGER.warning(f"Unknown control status {VArPct_Ena}")
+            varpct_ena_status = "Unknown"
+        self.data['VArPct_Ena'] = varpct_ena_status
 
         return True
 
     async def read_mppt_data(self):
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=MPPT_ADDRESS, count=88)
+        if not self.mppt_configured:
+            return False
+            
+        mppt_model = self.sunspec_models[SUNSPEC_MPPT_MODEL]
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=mppt_model['address'] + 2, count=mppt_model['len'])
         if regs is None:
             return False
 
         DCW_SF = self._client.convert_from_registers(regs[2:3], data_type = self._client.DATATYPE.INT16)
         DCWH_SF = self._client.convert_from_registers(regs[3:4], data_type = self._client.DATATYPE.INT16)
-        #N = self._client.convert_from_registers(regs[6:7], data_type = self._client.DATATYPE.UINT16)
-        # if N != 4:
-        #     _LOGGER.error(f"Integration only supports 4 mppt modules. Found only: {N}")
-        #     return
+        
+        num_modules = self.num_mppt_modules
 
-        module_1_DCW = self._client.convert_from_registers(regs[19:20], data_type = self._client.DATATYPE.UINT16)
-        module_1_DCWH = self._client.convert_from_registers(regs[20:22], data_type = self._client.DATATYPE.UINT32)
+        pv_power = 0
+        
+        mppt_powers = []
+        mppt_lftes = []
 
-        module_2_DCW = self._client.convert_from_registers(regs[39:40], data_type = self._client.DATATYPE.UINT16)
-        module_2_DCWH = self._client.convert_from_registers(regs[40:42], data_type = self._client.DATATYPE.UINT32)
+        for i in range(num_modules):
+            # 8 is the header length for the mppt model, each module has a length of 20
+            dcw_offset = MPPT_HEADER_LENGTH + 11 + i * MPPT_MODULE_LENGTH
+            dcwh_offset = MPPT_HEADER_LENGTH + 12 + i * MPPT_MODULE_LENGTH
+            
+            power = self.calculate_value(self._client.convert_from_registers(regs[dcw_offset:dcw_offset+1], data_type = self._client.DATATYPE.UINT16), DCW_SF, 2, 0, 15000)
+            lfte = self.calculate_value(self._client.convert_from_registers(regs[dcwh_offset:dcwh_offset+2], data_type = self._client.DATATYPE.UINT32), DCWH_SF)
 
-        mppt1_power = self.calculate_value(module_1_DCW, DCW_SF, 2, 0, 15000)
-        mppt2_power = self.calculate_value(module_2_DCW, DCW_SF, 2, 0, 15000)
-        if not mppt1_power is None and not mppt2_power is None:
-             pv_power = mppt1_power + mppt2_power
-        else:
-            pv_power = None
-
-        mppt1_lfte = self.calculate_value(module_1_DCWH, DCWH_SF)
-        mppt2_lfte = self.calculate_value(module_2_DCWH, DCWH_SF)
-
-        self.data['mppt1_power'] = mppt1_power
-        self.data['mppt2_power'] = mppt2_power
-        self.data['pv_power'] = pv_power
-        self.data['mppt1_lfte'] = mppt1_lfte
-        self.data['mppt2_lfte'] = mppt2_lfte
+            self.data[f'mppt{i+1}_power'] = power
+            self.data[f'mppt{i+1}_lfte'] = lfte
+            
+            mppt_powers.append(power)
+            mppt_lftes.append(lfte)
 
         if self.storage_configured:
-            module_3_DCW = self._client.convert_from_registers(regs[59:60], data_type = self._client.DATATYPE.UINT16)
-            module_3_DCWH = self._client.convert_from_registers(regs[60:62], data_type = self._client.DATATYPE.UINT32)
-
-            module_4_DCW = self._client.convert_from_registers(regs[79:80], data_type = self._client.DATATYPE.UINT16)
-            module_4_DCWH = self._client.convert_from_registers(regs[80:82], data_type = self._client.DATATYPE.UINT32)
-
-            mppt3_power = self.calculate_value(module_3_DCW, DCW_SF, 2, 0, 15000)
-            mppt4_power = self.calculate_value(module_4_DCW, DCW_SF, 2, 0, 15000)
-            if not mppt3_power is None and not mppt4_power is None:
-                storage_power = mppt4_power - mppt3_power
+            # Last two mppts are for storage
+            num_pv_mppts = max(0, num_modules - 2)
+            
+            if len(mppt_powers) >= 2:
+                charge_power = mppt_powers[num_modules-2]
+                discharge_power = mppt_powers[num_modules-1]
+                net_power = discharge_power - charge_power
+                
+                self.data['storage_power'] = net_power if discharge_power is not None and charge_power is not None else None
+                self.data['storage_charge_power'] = charge_power
+                self.data['storage_discharge_power'] = discharge_power
+                self.data['storage_charge_lfte'] = mppt_lftes[num_modules-2]
+                self.data['storage_discharge_lfte'] = mppt_lftes[num_modules-1]
             else:
-                storage_power = None
-        
-            mppt3_lfte = self.calculate_value(module_3_DCWH, DCWH_SF)
-            mppt4_lfte = self.calculate_value(module_4_DCWH, DCWH_SF)
+                self.data['storage_power'] = None
+                self.data['storage_charge_power'] = None
+                self.data['storage_discharge_power'] = None
+                self.data['storage_charge_lfte'] = None
+                self.data['storage_discharge_lfte'] = None
 
-            self.data['mppt3_power'] = mppt3_power
-            self.data['mppt4_power'] = mppt4_power
-            self.data['storage_power'] = storage_power
+        else:
+            num_pv_mppts = num_modules
 
-            self.data['mppt3_lfte'] = mppt3_lfte
-            self.data['mppt4_lfte'] = mppt4_lfte
+        for i in range(num_pv_mppts):
+            if mppt_powers[i] is not None:
+                pv_power += mppt_powers[i]
+
+        self.data['pv_power'] = pv_power if pv_power > 0 else None
 
         return True
 
+
     async def read_inverter_storage_data(self):
         """start reading storage data"""
-        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=STORAGE_ADDRESS, count=24)
+        if not self.storage_configured:
+            return False
+
+        storage_model = self.sunspec_models[SUNSPEC_STORAGE_MODEL]
+        regs = await self.get_registers(unit_id=self._inverter_unit_id, address=storage_model['address'] + 2, count=storage_model['len'])
         if regs is None:
             return False
         
@@ -396,28 +617,29 @@ class FroniusModbusClient(ExtModbusClient):
         self.data['grid_charging'] = CHARGE_GRID_STATUS.get(charge_grid_set)
         #self.data['power'] = power
         self.data['charge_status'] = CHARGE_STATUS.get(charge_status)
-        self.data['minimum_reserve'] =  self.calculate_value(minimum_reserve, -2, 2, 0, 100)
+        self.data['minimum_reserve'] = self.calculate_value(minimum_reserve, -2, 2, 0, 100)
         self.data['discharging_power'] = self.calculate_value(discharge_power, -2, 2, -100, 100)
         self.data['charging_power'] = self.calculate_value(charge_power, -2, 2, -100, 100)
         self.data['soc'] = self.calculate_value(charge_state, -2, 2, 0, 100)
         self.data['max_charge'] = self.calculate_value(max_charge, 0, 0)
-        self.data['WChaGra'] = self.calculate_value(WChaGra, 0, 0)
-        self.data['WDisChaGra'] = self.calculate_value(WDisChaGra, 0, 0)
+        self.data['storage_minimum_reserve'] = self.data['minimum_reserve']
+
+        w_cha_max = self.data.get('max_charge', 10000)
 
         control_mode = self.data.get('control_mode')
         if control_mode is None or control_mode != STORAGE_CONTROL_MODE.get(storage_control_mode):
             if discharge_power >= 0:
-                self.data['discharge_limit'] = discharge_power / 100.0 
-                self.data['grid_charge_power'] = 0
+                self.data['storage_discharge_limit'] = (discharge_power / 10000.0) * w_cha_max 
+                self.data['storage_grid_charge_power'] = 0
             else: 
-                self.data['grid_charge_power'] = (discharge_power * -1) / 100.0 
-                self.data['discharge_limit'] = 0
+                self.data['storage_grid_charge_power'] = ((discharge_power * -1) / 10000.0) * w_cha_max 
+                self.data['storage_discharge_limit'] = 0
             if charge_power >= 0:
-                self.data['charge_limit'] = charge_power / 100 
-                self.data['grid_discharge_power'] = 0
+                self.data['storage_charge_limit'] = (charge_power / 10000.0) * w_cha_max 
+                self.data['storage_grid_discharge_power'] = 0
             else: 
-                self.data['grid_discharge_power'] = (charge_power * -1) / 100.0 
-                self.data['charge_limit'] = 0
+                self.data['storage_grid_discharge_power'] = ((charge_power * -1) / 10000.0) * w_cha_max 
+                self.data['storage_charge_limit'] = 0
 
             self.data['control_mode'] = STORAGE_CONTROL_MODE.get(storage_control_mode)
 
@@ -428,14 +650,14 @@ class FroniusModbusClient(ExtModbusClient):
                 ext_control_mode = 0
             elif storage_control_mode in [1,3] and charge_power == 0:
                 ext_control_mode = 7
+            elif storage_control_mode in [1,3] and charge_power < 0:
+                ext_control_mode = 5
             elif storage_control_mode == 1:
                 ext_control_mode = 1
-            elif storage_control_mode in [2,3] and discharge_power < 0:
-                ext_control_mode = 4
-            elif storage_control_mode in [2,3] and charge_power < 0:
-                ext_control_mode = 5
             elif storage_control_mode in [2,3] and discharge_power == 0:
                 ext_control_mode = 6
+            elif storage_control_mode in [2,3] and discharge_power < 0:
+                ext_control_mode = 4
             elif storage_control_mode == 2:
                 ext_control_mode = 2
             elif storage_control_mode == 3:
@@ -443,23 +665,18 @@ class FroniusModbusClient(ExtModbusClient):
             self.data['ext_control_mode'] = STORAGE_EXT_CONTROL_MODE[ext_control_mode]
             self.storage_extended_control_mode = ext_control_mode
 
-        if ext_control_mode == 7:
-            soc = self.data.get('soc')
-            if storage_control_mode == 2 and soc == 100:
-                _LOGGER.error(f'Calibration hit 100%, start discharge')
-                self.change_settings(1, 0, 100, 0)
-            elif storage_control_mode == 3 and soc <= 5: 
-                _LOGGER.error(f'Calibration hit 5%, return to auto mode')
-                self.set_auto_mode()
-                self.set_minimum_reserve(30)
-                self.data['ext_control_mode'] = STORAGE_EXT_CONTROL_MODE[0]
-                self.storage_extended_control_mode = 0
-
         return True
 
     async def read_meter_data(self, meter_prefix, unit_id):
         """start reading meter data"""
-        regs = await self.get_registers(unit_id=unit_id, address=METER_ADDRESS, count=103)
+        meter_model = next((m for m in self.sunspec_meter_models.get(unit_id, {}) if m in [SUNSPEC_METER_MODEL_201, SUNSPEC_METER_MODEL_202, SUNSPEC_METER_MODEL_203, SUNSPEC_METER_MODEL_204]), None)
+
+        if not meter_model:
+            _LOGGER.warning(f"No compatible meter model found for unit id {unit_id}")
+            return False
+
+        meter_info = self.sunspec_meter_models[unit_id][meter_model]
+        regs = await self.get_registers(unit_id=unit_id, address=meter_info['address'] + 2, count=meter_info['len'])
         if regs is None:
             return False
 
@@ -526,17 +743,25 @@ class FroniusModbusClient(ExtModbusClient):
         return True
 
     async def set_storage_control_mode(self, mode: int):
+        if not self.storage_configured:
+            return False
+        storage_model = self.sunspec_models[SUNSPEC_STORAGE_MODEL]
         if not mode in [0,1,2,3]:
             _LOGGER.error(f'Attempted to set to unsupported storage control mode. Value: {mode}')
             return
-        await self.write_registers(unit_id=self._inverter_unit_id, address=STORAGE_CONTROL_MODE_ADDRESS, payload=[mode])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=storage_model['address'] + 2 + STORAGE_CONTROL_MODE_OFFSET, payload=[mode])
 
-    async def set_minimum_reserve(self, minimum_reserve: float):
+    async def set_storage_minimum_reserve(self, minimum_reserve: float):
+        if not self.storage_configured:
+            return False
+        storage_model = self.sunspec_models[SUNSPEC_STORAGE_MODEL]
         if minimum_reserve < 5:
             _LOGGER.error(f'Attempted to set minimum reserve below 5%. Value: {minimum_reserve}')
             return
         minimum_reserve = round(minimum_reserve * 100)
-        await self.write_registers(unit_id=self._inverter_unit_id, address=MINIMUM_RESERVE_ADDRESS, payload=[minimum_reserve])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=storage_model['address'] + 2 + MINIMUM_RESERVE_OFFSET, payload=[minimum_reserve])
+
+
 
     async def set_discharge_rate_w(self, discharge_rate_w):
         if discharge_rate_w > self.max_discharge_rate_w:
@@ -548,11 +773,14 @@ class FroniusModbusClient(ExtModbusClient):
         await self.set_discharge_rate(discharge_rate)
 
     async def set_discharge_rate(self, discharge_rate):
+        if not self.storage_configured:
+            return False
+        storage_model = self.sunspec_models[SUNSPEC_STORAGE_MODEL]
         if discharge_rate < 0:
-            discharge_rate = int(65536 + (discharge_rate * 100))
+            discharge_rate = int(round(65536 + (discharge_rate * 100)))
         else:
             discharge_rate = int(round(discharge_rate * 100))
-        await self.write_registers(unit_id=self._inverter_unit_id, address=DISCHARGE_RATE_ADDRESS, payload=[discharge_rate])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=storage_model['address'] + 2 + DISCHARGE_RATE_OFFSET, payload=[discharge_rate])
 
     async def set_charge_rate_w(self, charge_rate_w):
         if charge_rate_w > self.max_charge_rate_w:
@@ -563,116 +791,115 @@ class FroniusModbusClient(ExtModbusClient):
             charge_rate = charge_rate_w / self.max_charge_rate_w * 100
         await self.set_charge_rate(charge_rate)
 
-    async def set_grid_charge_power(self, value):
+    async def set_storage_grid_charge_power(self, value):
         if self.storage_extended_control_mode == 4:
             await self.set_discharge_rate_w(value * -1)
-            self.data['grid_charge_power'] = value
+            self.data['storage_grid_charge_power'] = value
         else:
             return
 
-    async def set_grid_discharge_power(self, value):
+    async def set_storage_grid_discharge_power(self, value):
         if self.storage_extended_control_mode == 5:
             await self.set_charge_rate_w(value * -1)
-            self.data['grid_discharge_power'] = value
+            self.data['storage_grid_discharge_power'] = value
         else:
             return
         
-    async def set_charge_limit(self, value):
+    async def set_storage_charge_limit(self, value):
         if self.storage_extended_control_mode in [1,3,6]:
             # only change when charge limit is used
             await self.set_charge_rate_w(value)
-            self.data['charge_limit'] = value
+            self.data['storage_charge_limit'] = value
         elif self.storage_extended_control_mode in [4,5,7]:
             return
         elif self.storage_extended_control_mode in [0,2]:
             return
 
-    async def set_discharge_limit(self, value):
+    async def set_storage_discharge_limit(self, value):
         if self.storage_extended_control_mode in [2,3,7]:
             # only change when discharge limit is used
             await self.set_discharge_rate_w(value)
-            self.data['discharge_limit'] = value
+            self.data['storage_discharge_limit'] = value
         elif self.storage_extended_control_mode in [4,5,6]:
             return
         elif self.storage_extended_control_mode in [0,1]:
             return
 
     async def set_charge_rate(self, charge_rate):
+        if not self.storage_configured:
+            return False
+        storage_model = self.sunspec_models[SUNSPEC_STORAGE_MODEL]
         if charge_rate < 0:
-            charge_rate =  int(65536 + (charge_rate * 100))
+            charge_rate = int(round(65536 + (charge_rate * 100)))
         else:
             charge_rate = int(round(charge_rate * 100))
-        await self.write_registers(unit_id=self._inverter_unit_id, address=CHARGE_RATE_ADDRESS, payload=[charge_rate])
+        await self.write_registers(unit_id=self._inverter_unit_id, address=storage_model['address'] + 2 + CHARGE_RATE_OFFSET, payload=[charge_rate])
 
     async def change_settings(self, mode, charge_limit, discharge_limit, grid_charge_power=0, grid_discharge_power=0, minimum_reserve=None):
+        await self.set_storage_control_mode(0)
+        await self.set_charge_rate_w(charge_limit)
+        await self.set_discharge_rate_w(discharge_limit)
         await self.set_storage_control_mode(mode)
-        await self.set_charge_rate(charge_limit)
-        await self.set_discharge_rate(discharge_limit)
-        self.data['charge_limit'] = charge_limit
         if self.storage_extended_control_mode == 4:
-            self.data['discharge_limit'] = 0
+            self.data['storage_discharge_limit'] = 0
         else:
-            self.data['discharge_limit'] = discharge_limit
+            self.data['storage_discharge_limit'] = discharge_limit
         if self.storage_extended_control_mode == 5:
-            self.data['charge_limit'] = 0
+            self.data['storage_charge_limit'] = 0
         else:
-            self.data['charge_limit'] = charge_limit
-        self.data['grid_charge_power'] = grid_charge_power
-        self.data['grid_discharge_power'] = grid_discharge_power
+            self.data['storage_charge_limit'] = charge_limit
+        self.data['storage_grid_charge_power'] = grid_charge_power
+        self.data['storage_grid_discharge_power'] = grid_discharge_power
         if not minimum_reserve is None:
-            await self.set_minimum_reserve(minimum_reserve)
+            await self.set_storage_minimum_reserve(minimum_reserve)
         
     async def restore_defaults(self):
-        await self.change_settings(mode=0, charge_limit=100, discharge_limit=100, minimum_reserve=7)
+        await self.change_settings(mode=0, charge_limit=self.max_charge_rate_w, discharge_limit=self.max_discharge_rate_w, minimum_reserve=7)
         _LOGGER.info(f"restored defaults")
 
     async def set_auto_mode(self):
-        await self.change_settings(mode=0, charge_limit=100, discharge_limit=100)
+        await self.change_settings(mode=0, charge_limit=self.max_charge_rate_w, discharge_limit=self.max_discharge_rate_w)
         self.storage_extended_control_mode = 0
         _LOGGER.info(f"Auto mode")
 
     async def set_charge_mode(self):
-        await self.change_settings(mode=1, charge_limit=100, discharge_limit=100)
+        await self.change_settings(mode=1, charge_limit=self.max_charge_rate_w, discharge_limit=self.max_discharge_rate_w)
         self.storage_extended_control_mode = 1
         _LOGGER.info(f"Set charge mode")
   
     async def set_discharge_mode(self):
-        await self.change_settings(mode=2, charge_limit=100, discharge_limit=100)
+        await self.change_settings(mode=2, charge_limit=self.max_charge_rate_w, discharge_limit=self.max_discharge_rate_w)
         self.storage_extended_control_mode = 2
         _LOGGER.info(f"Set discharge mode")
 
     async def set_charge_discharge_mode(self):
-        await self.change_settings(mode=3, charge_limit=100, discharge_limit=100)
+        await self.change_settings(mode=3, charge_limit=self.max_charge_rate_w, discharge_limit=self.max_discharge_rate_w)
         self.storage_extended_control_mode = 3
         _LOGGER.info(f"Set charge/discharge mode.")
 
     async def set_grid_charge_mode(self):
         grid_charge_power = 0
         discharge_rate = grid_charge_power * -1
-        await self.change_settings(mode=2, charge_limit=100, discharge_limit=discharge_rate, grid_charge_power=grid_charge_power)
+        await self.change_settings(mode=2, charge_limit=self.max_charge_rate_w, discharge_limit=discharge_rate, grid_charge_power=grid_charge_power)
         self.storage_extended_control_mode = 4
         _LOGGER.info(f"Forced charging at {grid_charge_power}")
 
     async def set_grid_discharge_mode(self):
         grid_discharge_power = 0
         charge_rate = grid_discharge_power * -1
-        await self.change_settings(mode=1, charge_limit=charge_rate, discharge_limit=100, grid_discharge_power=grid_discharge_power)
+        await self.change_settings(mode=1, charge_limit=charge_rate, discharge_limit=self.max_discharge_rate_w, grid_discharge_power=grid_discharge_power)
         self.storage_extended_control_mode = 5
         _LOGGER.info(f"Forced discharging to grid {grid_discharge_power}")
 
     async def set_block_discharge_mode(self):
-        charge_rate = 100
+        charge_rate = self.max_charge_rate_w
         await self.change_settings(mode=3, charge_limit=charge_rate, discharge_limit=0)
         self.storage_extended_control_mode = 6
         _LOGGER.info(f"blocked discharging")
 
     async def set_block_charge_mode(self):
-        discharge_rate = 100
+        discharge_rate = self.max_discharge_rate_w
         await self.change_settings(mode=3, charge_limit=0, discharge_limit=discharge_rate)
         self.storage_extended_control_mode = 7
         _LOGGER.info(f"Block charging at {discharge_rate}")
 
-    async def set_calibrate_mode(self):
-        await self.change_settings(mode=2, charge_limit=100, discharge_limit=-100, grid_charge_power=100)
-        self.storage_extended_control_mode = 8
-        _LOGGER.info(f"Auto mode")

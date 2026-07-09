@@ -1,7 +1,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 
 # fronius_modbus
-Home assistant Custom Component for reading data from Fronius Gen24 Inverter and connected smart meters and battery storage. This integration uses a local modbus connection. 
+Home assistant Custom Component for reading data from Fronius GEN24, Verto or Tauro Inverter and connected smart meters and battery storage. This integration uses a local modbus connection. 
 
 > [!CAUTION]
 > This is a work in progress project - it is still in early development stage, so there are still breaking changes possible.
@@ -50,35 +50,37 @@ And turn on:
 ### Controls
 | Entity  | Description |
 | --- | --- |
-| Discharge Limit | This is maxium discharging power in watts of which the battery can be discharged by.  |
-| Grid Charge Power | The charging power in watts when the storage is being charged from the grid. Note that grid charging is seems to be limited to an effictive 50% by the hardware. |
+| Load Discharge Limit | Maximum load discharging power in watts of which the battery can be discharged by. |
+| Grid Charge Power | The charging power in watts when the storage is being charged from the grid. Note that grid charging seems to be limited to an effective 50% by the hardware. |
 | Grid Discharge Power | The discharging power in watts when the storage is being discharged to the grid. |
 | Minimum Reserve | The minimum reserve for storage when discharging. Note that the storage will charge from the grid with 0.5kW if SOC falls below this level. Called 'Reserve Capacity' in Fronius Web UI. |
-| PV Charge Limit  | This is maximum PV charging power in watts of which the battery can be charged by.  |
+| PV Charge Limit | Maximum PV charging power in watts of which the battery can be charged by. |
+| Charge Rate Setpoint | Direct hardware setpoint for the maximum charge rate of the battery. Advanced control that bypasses mode logic. |
+| Discharge Rate Setpoint | Direct hardware setpoint for the maximum discharge rate of the battery. Advanced control that bypasses mode logic. |
 
 ### Storage Control Modes
 | Mode  | Description |
 | --- | --- |
 | Auto  | The storage will allow charging and discharging up to the minimum reserve. |
 | PV Charge Limit | The storage can be charged with PV power at a limited rate. Limit will be set to maximum power after change.  |
-| Discharge Limit | The storage can be charged with PV power and discharged at a limited rate.  in Fronius Web UI. Limit will be set to maximum power after change. |
-| PV Charge and Discharge Limit | Allows setting both PV charge and discharge limits. Limits will be set to maximum power after change. |
-| Charge from Grid | The storage will be charged from the grid using the charge rate from 'Grid Charge Power'. Power will be set 0 after change. |
-| Discharge to Grid | The storage will discharge to the gird using the discharge rate from 'Gird Discharge Power'. Power will be set 0 after change. |
+| Load Discharge Limit | The storage can be discharged into the load at a limited rate. Limit will be set to maximum power after change. |
+| PV Charge and Load Discharge Limit | Allows setting both PV charge and load discharge limits. Limits will be set to maximum power after change. |
+| Charge from Grid | The storage will be charged from the grid using the charge rate from 'Storage Grid Charge Power'. Power will be set 0 after change. |
+| Discharge to Grid | The storage will discharge to the grid using the discharge rate from 'Storage Grid Discharge Power'. Power will be set 0 after change. |
 | Block discharging | The storage can only be charged with PV power. Charge limit will be set to maximum power. |
-| Block charging | The can only be discharged and won't be charged with PV power. Discharge limit will be set to maximum power. |
+| Block charging | The storage can only be discharged and won't be charged with PV power. Discharge limit will be set to maximum power. |
 
 Note to change the mode first then set controls active in that mode.
 
 ### Controls used by Modes
-| Mode | Charge Limit | Discharge Limit | Grid Charge Power |  Grid Discharge Power | Minimum Reserve | 
+| Mode | PV Charge Limit | Load Discharge Limit | Grid Charge Power | Grid Discharge Power | Minimum Reserve | 
 | --- | --- | --- | --- | --- | --- |
 | Auto | Ignored (100%) | Ignored (100%) | Ignored (0%) | Ignored (0%) | Used | 
 | PV Charge Limit | Used | Ignored (100%) | Ignored (0%) | Ignored (0%) | Used |
-| Discharge Limit  | Ignored (100%) | Used | Ignored (0%) | Ignored (0%) | Used |
-| PV Charge and Discharge Limit  | Used | Used | Ignored (0%) | Ignored (0%) | Used |
+| Load Discharge Limit  | Ignored (100%) | Used | Ignored (0%) | Ignored (0%) | Used |
+| PV Charge and Load Discharge Limit  | Used | Used | Ignored (0%) | Ignored (0%) | Used |
 | Charge from Grid | Ignored | Ignored | Used | Ignored (0%) | Used |
-| Charge from Grid | Ignored | Ignored | Ignored (0%) | Used | Used |
+| Discharge to Grid | Ignored | Ignored | Ignored (0%) | Used | Used |
 | Block discharging | Used | Ignored (0%) | Ignored (0%) | Ignored (0%) | Used |
 | Block charging | Ignored (0%) | Used | Ignored (0%) | Ignored (0%) | Used |
 
@@ -86,9 +88,9 @@ Note to change the mode first then set controls active in that mode.
 | Web UI name | Integration Control | Integration Mode |
 | --- | --- | --- |
 | Max. charging power | PV Charge Limit | PV Charge Limit |
-| Min. charging power | Grid Charging Power | Charge from Grid |
-| Max. discharging power | Discharge Limit | Discharge Limit |
-| Min. discharging power | Grid Discharge Power | Grid Discharge Power | 
+| Min. charging power | Grid Charge Power | Charge from Grid |
+| Max. discharging power | Load Discharge Limit | Load Discharge Limit |
+| Min. discharging power | Grid Discharge Power | Discharge to Grid | 
 
 ### Battery Storage Sensors
 | Entity  | Description |
@@ -106,13 +108,18 @@ To come!
 ### Inverter Sensors
 | Entity  | Description |
 | --- | --- |
-| Load | The current total power consumption which is derived by adding up the meter AC power and interver AC power. |
+| Load | The current total power consumption which is derived by adding up the meter AC power and inverter AC power. |
+| MPPT{x} power | The current power generated by MPPT module {x} in watts. Generated dynamically based on the hardware configuration. |
+| MPPT{x} lifetime energy | The total lifetime energy generated by MPPT module {x} in Wh. Generated dynamically based on the hardware configuration. |
 
 
 ### Inverter Diagnostics
 | Entity  | Description |
 | --- | --- |
-| Grid status | Grid status based on meter and interter frequency. If inverter frequency is 53hz it is running in off grid mode and normally in 50hz. When the inverter is sleeping the meter frequency is checked for connection. |
+| Grid status | Grid status based on meter and inverter frequency. If inverter frequency is 53hz it is running in off grid mode and normally in 50hz. When the inverter is sleeping the meter frequency is checked for connection. |
+
+### Smart Meters
+The integration dynamically detects and exposes all configured smart meters up to the limit configured in your inverter. Each meter will have its own individual entity prefixed with `m{id}_` (e.g. `m1_`, `m2_`) and supports models 201, 202, 203, and 204.
 
 
 # Example Devices (Outdated screenshots!)
