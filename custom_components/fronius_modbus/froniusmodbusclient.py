@@ -421,8 +421,22 @@ class FroniusModbusClient(ExtModbusClient):
 
             self.data['control_mode'] = STORAGE_CONTROL_MODE.get(storage_control_mode)
 
-        # set extended storage control mode at startup
+        # Extended storage control mode: derived from the registers at startup,
+        # then maintained by the set_*_mode methods on HA-side writes. Like the
+        # control_mode block above, re-derive when the base control mode
+        # register no longer matches the stored extended mode (a change from
+        # Solar.web, the inverter itself, or any path that bypassed
+        # set_*_mode) - otherwise the stale extended mode sticks until a
+        # config-entry reload, and with it the availability of the mode-gated
+        # number entities. Power-level transitions within the same base mode
+        # (e.g. a charge limit reaching 0 in mode 1/3) deliberately do NOT
+        # re-derive, so an HA-chosen extended mode is never overridden while
+        # its base mode still matches.
+        ext_mode_base = {0: (0,), 1: (1,), 2: (2,), 3: (3,), 4: (2, 3), 5: (2, 3), 6: (2, 3), 7: (1, 3)}
         ext_control_mode = self.data.get('ext_control_mode')
+        if ext_control_mode is not None and storage_control_mode not in ext_mode_base.get(self.storage_extended_control_mode, ()):
+            _LOGGER.info(f'Storage control mode register ({storage_control_mode}) no longer matches extended mode {self.storage_extended_control_mode}, re-deriving extended mode')
+            ext_control_mode = None
         if ext_control_mode is None:
             if storage_control_mode == 0:
                 ext_control_mode = 0
