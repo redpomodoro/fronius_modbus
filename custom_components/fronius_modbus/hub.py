@@ -1,6 +1,7 @@
 """Fronius Modbus Hub."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Optional
@@ -36,27 +37,48 @@ class Hub:
         self._unsub_interval_method = None
         self._entities = []
         self._entities_dict = {}
-        self._busy = False
+        self._lock = asyncio.Lock()
 
     def toggle_busy(func):
+        """Run under the hub lock, skipping when it is already held.
+
+        Only for the periodic refresh: an overlapping refresh may be dropped,
+        it fires again on the next interval. User-initiated writes must use
+        `serialized` instead - dropping a write silently loses a command the
+        user (or an automation) believes was executed.
+        """
         async def wrapper(self, *args, **kwargs):
-            if self._busy:
-                #_LOGGER.debug(f"skip {func.__name__} hub busy") 
+            if self._lock.locked():
+                #_LOGGER.debug(f"skip {func.__name__} hub busy")
                 return
-            self._busy = True
-            error = None
-            try:
-                result = await func(self, *args, **kwargs)
-            except Exception as e:
-                _LOGGER.warning(f'Exception in wrapper {e}')
-                error = e
-            self._busy = False
-            if not error is None:
-                raise error
-            return result
+            async with self._lock:
+                try:
+                    return await func(self, *args, **kwargs)
+                except Exception as e:
+                    _LOGGER.warning(f'Exception in {func.__name__}: {e}')
+                    raise
         return wrapper
 
-    @toggle_busy
+    def serialized(func):
+        """Wait for the hub lock, then run - never drop the call.
+
+        Every user-initiated write goes through this: previously writes shared
+        the skip-when-busy decorator, so a select/number write racing the poll
+        loop (e.g. right after HA startup) silently did nothing while the
+        entity still updated its state - leaving HA displaying a storage mode
+        the inverter is not in, and mode-gated entity availability stuck until
+        a config-entry reload.
+        """
+        async def wrapper(self, *args, **kwargs):
+            async with self._lock:
+                try:
+                    return await func(self, *args, **kwargs)
+                except Exception as e:
+                    _LOGGER.warning(f'Exception in {func.__name__}: {e}')
+                    raise
+        return wrapper
+
+    @serialized
     async def init_data(self, close = False, read_status_data = False):
         await self._hass.async_add_executor_job(self.check_pymodbus_version)  
         result = await self._client.init_data()
@@ -192,7 +214,7 @@ class Hub:
             for update_callback in self._entities:
                 update_callback()
 
-    @toggle_busy
+    @serialized
     async def test_connection(self) -> bool:
         """Test connectivity"""
         try:
@@ -230,7 +252,7 @@ class Hub:
     def storage_extended_control_mode(self):
         return self._client.storage_extended_control_mode
 
-    @toggle_busy
+    @serialized
     async def set_mode(self, mode):
         if mode == 0:
             await self._client.set_auto_mode()
@@ -251,23 +273,23 @@ class Hub:
         elif mode == 8:
             await self._client.set_calibrate_mode()
 
-    @toggle_busy
+    @serialized
     async def set_minimum_reserve(self, value):
         await self._client.set_minimum_reserve(value)
 
-    @toggle_busy
+    @serialized
     async def set_charge_limit(self, value):
         await self._client.set_charge_limit(value)
 
-    @toggle_busy
+    @serialized
     async def set_discharge_limit(self, value):
         await self._client.set_charge_limit(value)
 
-    @toggle_busy
+    @serialized
     async def set_grid_charge_power(self, value):
         await self._client.set_grid_charge_power(value)
            
-    @toggle_busy
+    @serialized
     async def set_grid_discharge_power(self, value):
         await self._client.set_grid_discharge_power(value)
 
