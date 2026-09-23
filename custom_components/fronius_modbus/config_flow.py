@@ -117,11 +117,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow """
 
     VERSION = 1
-    # Pick one of the available connection classes in homeassistant/config_entries.py
-    # This tells HA if it should be asking for updates, or it'll be notified of updates
-    # automatically. This integration uses PUSH, as the hub will notify HA of
-    # changes.
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
+    # CONNECTION_CLASS wurde in HA 2022.x entfernt; iot_class wird in manifest.json definiert.
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""

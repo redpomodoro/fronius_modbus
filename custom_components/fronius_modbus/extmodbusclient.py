@@ -11,15 +11,38 @@ import asyncio
 
 from pymodbus.client import AsyncModbusTcpClient
 try:
-    # For newer pymodbus versions (3.9.x+)
+    # pymodbus 3.9.x+
     from pymodbus.pdu.pdu import unpack_bitstring
 except ImportError:
-    # For older pymodbus versions (3.8.x and below)
-    from pymodbus.utilities import unpack_bitstring
+    try:
+        # pymodbus 3.8.x and below
+        from pymodbus.utilities import unpack_bitstring
+    except ImportError:
+        # pymodbus 3.11.x+ removed the function entirely – use local fallback
+        def unpack_bitstring(data: bytes) -> list:
+            """Unpack a bytestring into a list of booleans (one per bit)."""
+            bits = []
+            for byte in data:
+                for bit in range(8):
+                    bits.append(bool(byte & (1 << bit)))
+            return bits
 from pymodbus.exceptions import ModbusIOException, ConnectionException
 from pymodbus import ExceptionResponse
 
 _LOGGER = logging.getLogger(__name__)
+
+# SunSpec "not implemented" sentinel values – registers containing these values
+# must be treated as unavailable, not as real measurements.
+_SUNSPEC_NAN_INT16  = -32768       # 0x8000
+_SUNSPEC_NAN_UINT16 = 65535        # 0xFFFF
+_SUNSPEC_NAN_INT32  = -2147483648  # 0x80000000
+_SUNSPEC_NAN_UINT32 = 4294967295   # 0xFFFFFFFF
+_SUNSPEC_NAN_VALUES = frozenset({
+    _SUNSPEC_NAN_INT16,
+    _SUNSPEC_NAN_UINT16,
+    _SUNSPEC_NAN_INT32,
+    _SUNSPEC_NAN_UINT32,
+})
 
 class ExtModbusClient:
 
@@ -248,18 +271,34 @@ class ExtModbusClient:
             return ','.join(strings)[:max_length]
         return default
 
-    def calculate_value(self, value, sf, digits=2, lower_bound = None, upper_bound = None):
+    def is_sunspec_nan(self, value) -> bool:
+        """Return True if value is a SunSpec not-implemented sentinel."""
+        return value in _SUNSPEC_NAN_VALUES
+
+    def calculate_value(self, value, sf, digits=2, lower_bound=None, upper_bound=None):
         if self.is_numeric(value) and self.is_numeric(sf):
-            rvalue = round(value * 10**sf, digits)
-            if not lower_bound is None and rvalue < lower_bound:
-                _LOGGER.error(f'calculated value: {rvalue} below lower bound {lower_bound} value: {value} sf: {sf} digits {digits}', stack_info=True)
+            # Reject SunSpec not-implemented sentinels.
+            if self.is_sunspec_nan(value):
+                _LOGGER.debug(f'calculate_value: sunspec NaN value={value} sf={sf}')
                 return None
-            if not upper_bound is None and rvalue > upper_bound:
-                _LOGGER.error(f'calculated value: {rvalue} above upper bound {upper_bound} value: {value} sf: {sf} digits {digits}', stack_info=True)
-                return None                    
-            return round(value * 10**sf, digits)
+            if self.is_sunspec_nan(sf) or sf == _SUNSPEC_NAN_INT16:
+                _LOGGER.debug(f'calculate_value: sunspec NaN scale factor value={value} sf={sf}')
+                return None
+            # Sanity-check the scale factor (valid SunSpec range is -10..+10).
+            # Out-of-range SF is common during inverter sleep — log at DEBUG only.
+            if sf > 10 or sf < -10:
+                _LOGGER.debug(f'calculate_value: scale factor out of range value={value} sf={sf}')
+                return None
+            rvalue = round(value * 10**sf, digits)
+            if lower_bound is not None and rvalue < lower_bound:
+                _LOGGER.debug(f'calculate_value: {rvalue} below lower bound {lower_bound} (value={value} sf={sf})')
+                return None
+            if upper_bound is not None and rvalue > upper_bound:
+                _LOGGER.debug(f'calculate_value: {rvalue} above upper bound {upper_bound} (value={value} sf={sf})')
+                return None
+            return rvalue
         else:
-            _LOGGER.debug(f'cannot calculate non numeric value: {value} sf: {sf} digits {digits}', stack_info=True)
+            _LOGGER.debug(f'calculate_value: non-numeric value={value} sf={sf}')
         return None
 
     def is_numeric(self, value):

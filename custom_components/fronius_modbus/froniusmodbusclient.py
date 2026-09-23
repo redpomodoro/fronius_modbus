@@ -202,7 +202,7 @@ class FroniusModbusClient(ExtModbusClient):
         self.data["line_frequency"] = self.calculate_value(Hz, Hz_SF, 2, 0, 100)
         self.data["acenergy"] = self.calculate_value(WH, WH_SF) 
         #self.data["status"] = INVERTER_STATUS[St]
-        self.data["statusvendor"] = FRONIUS_INVERTER_STATUS[StVnd]
+        self.data["statusvendor"] = FRONIUS_INVERTER_STATUS.get(StVnd, f'Unknown ({StVnd})')
         self.data["statusvendor_id"] = StVnd
         #self.data["events1"] = self.bitmask_to_string(EvtVnd1,INVERTER_EVENTS,default='None',bits=32)  
         self.data["events2"] = self.bitmask_to_string(EvtVnd2,INVERTER_EVENTS,default='None',bits=32)  
@@ -246,9 +246,9 @@ class FroniusModbusClient(ExtModbusClient):
 
         StActCtl = self._client.convert_from_registers(regs[33:35], data_type = self._client.DATATYPE.UINT32)
         
-        self.data['pv_connection'] = CONNECTION_STATUS_CONDENSED[PVConn]
-        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED[StorConn] 
-        self.data['ecp_connection'] = ECP_CONNECTION_STATUS[ECPConn]
+        self.data['pv_connection'] = CONNECTION_STATUS_CONDENSED.get(PVConn, f'Unknown ({PVConn})')
+        self.data['storage_connection'] = CONNECTION_STATUS_CONDENSED.get(StorConn, f'Unknown ({StorConn})')
+        self.data['ecp_connection'] = ECP_CONNECTION_STATUS.get(ECPConn, f'Unknown ({ECPConn})')
         self.data['inverter_controls'] = self.bitmask_to_string(StActCtl, INVERTER_CONTROLS, 'Normal')  
 
         return True
@@ -282,10 +282,10 @@ class FroniusModbusClient(ExtModbusClient):
         OutPFSet_Ena = self._client.convert_from_registers(regs[12:13], data_type = self._client.DATATYPE.UINT16)
         VArPct_Ena = self._client.convert_from_registers(regs[20:21], data_type = self._client.DATATYPE.INT16)
 
-        self.data['Conn'] = CONTROL_STATUS[Conn]
-        self.data['WMaxLim_Ena'] = CONTROL_STATUS[WMaxLim_Ena]
-        self.data['OutPFSet_Ena'] = CONTROL_STATUS[OutPFSet_Ena]
-        self.data['VArPct_Ena'] = CONTROL_STATUS[VArPct_Ena]
+        self.data['Conn'] = CONTROL_STATUS.get(Conn, f'Unknown ({Conn})')
+        self.data['WMaxLim_Ena'] = CONTROL_STATUS.get(WMaxLim_Ena, f'Unknown ({WMaxLim_Ena})')
+        self.data['OutPFSet_Ena'] = CONTROL_STATUS.get(OutPFSet_Ena, f'Unknown ({OutPFSet_Ena})')
+        self.data['VArPct_Ena'] = CONTROL_STATUS.get(VArPct_Ena, f'Unknown ({VArPct_Ena})')
 
         return True
 
@@ -314,8 +314,11 @@ class FroniusModbusClient(ExtModbusClient):
         else:
             pv_power = None
 
-        mppt1_lfte = self.calculate_value(module_1_DCWH, DCWH_SF)
-        mppt2_lfte = self.calculate_value(module_2_DCWH, DCWH_SF)
+        # Upper bound: 5 GWh per string is physically impossible for this inverter class.
+        # Values above this are garbage from uninitialized registers during sleep mode.
+        _LFTE_MAX_WH = 5_000_000_000
+        mppt1_lfte = self.calculate_value(module_1_DCWH, DCWH_SF, upper_bound=_LFTE_MAX_WH)
+        mppt2_lfte = self.calculate_value(module_2_DCWH, DCWH_SF, upper_bound=_LFTE_MAX_WH)
 
         self.data['mppt1_power'] = mppt1_power
         self.data['mppt2_power'] = mppt2_power
@@ -337,8 +340,8 @@ class FroniusModbusClient(ExtModbusClient):
             else:
                 storage_power = None
         
-            mppt3_lfte = self.calculate_value(module_3_DCWH, DCWH_SF)
-            mppt4_lfte = self.calculate_value(module_4_DCWH, DCWH_SF)
+            mppt3_lfte = self.calculate_value(module_3_DCWH, DCWH_SF, upper_bound=_LFTE_MAX_WH)
+            mppt4_lfte = self.calculate_value(module_4_DCWH, DCWH_SF, upper_bound=_LFTE_MAX_WH)
 
             self.data['mppt3_power'] = mppt3_power
             self.data['mppt4_power'] = mppt4_power

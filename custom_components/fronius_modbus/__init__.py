@@ -23,7 +23,9 @@ _LOGGER = logging.getLogger(__name__)
 # eg <cover.py> and <sensor.py>
 PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SENSOR]
 
-type HubConfigEntry = ConfigEntry[hub.Hub]
+from typing import TypeAlias
+
+HubConfigEntry: TypeAlias = ConfigEntry  # type: ignore[type-arg]
 
 async def async_setup_entry(hass: HomeAssistant, entry: HubConfigEntry) -> bool:
     """Set up Fronius Modbus from a config entry."""

@@ -1,5 +1,4 @@
 import logging
-from typing import Optional, Dict, Any
 
 from .const import (
     STORAGE_SELECT_TYPES,
@@ -7,10 +6,7 @@ from .const import (
 )
 
 from homeassistant.core import callback
-from homeassistant.const import CONF_NAME
-from homeassistant.components.select import (
-    SelectEntity,
-)
+from homeassistant.components.select import SelectEntity
 
 from .hub import Hub
 from .base import FroniusModbusBaseEntity

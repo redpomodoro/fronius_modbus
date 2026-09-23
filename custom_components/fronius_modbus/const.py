@@ -45,13 +45,13 @@ STORAGE_NUMBER_TYPES = [
 
 INVERTER_SENSOR_TYPES = {
     'acpower': ['AC power', 'acpower', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:lightning-bolt', None],
-    'acenergy': ['AC energy', 'acenergy', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:lightning-bolt', None],
+    'acenergy': ['AC energy', 'acenergy', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:lightning-bolt', None],
     'tempcab': ['Temperature', 'tempcab', SensorDeviceClass.TEMPERATURE, SensorStateClass.MEASUREMENT, '°C', 'mdi:thermometer', None],
     'mppt1_power': ['MPPT1 power', 'mppt1_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:solar-power', None],
     'mppt2_power': ['MPPT2 power', 'mppt2_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:solar-power', None],
     'pv_power': ['PV power', 'pv_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:solar-power', None],
-    'mppt1_lfte': ['MPPT1 lifetime energy', 'mppt1_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:solar-panel', None],
-    'mppt2_lfte': ['MPPT2 lifetime energy', 'mppt2_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:solar-panel', None],
+    'mppt1_lfte': ['MPPT1 lifetime energy', 'mppt1_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:solar-panel', None],
+    'mppt2_lfte': ['MPPT2 lifetime energy', 'mppt2_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:solar-panel', None],
     'load': ['Load', 'load', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:lightning-bolt', None],
     'pv_connection': ['PV connection', 'pv_connection', None, None, None, None, EntityCategory.DIAGNOSTIC],
     'ecp_connection': ['Electrical connection', 'ecp_connection', None, None, None, None, EntityCategory.DIAGNOSTIC],
@@ -88,15 +88,15 @@ INVERTER_STORAGE_SENSOR_TYPES = {
     'mppt4_power': ['Storage discharging power', 'mppt4_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:home-battery', None],
     'storage_connection': ['Storage connection', 'storage_connection', None, None, None, None, EntityCategory.DIAGNOSTIC],
     'storage_power': ['Storage power', 'storage_power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:home-battery', None],
-    'mppt3_lfte': ['Storage charging lifetime energy', 'mppt3_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:home-battery', None],
-    'mppt4_lfte': ['Storage discharging lifetime energy', 'mppt4_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:home-battery', None],
+    'mppt3_lfte': ['Storage charging lifetime energy', 'mppt3_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:home-battery', None],
+    'mppt4_lfte': ['Storage discharging lifetime energy', 'mppt4_lfte', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:home-battery', None],
 }
 
 
 METER_SENSOR_TYPES = {
     'power': ['Power', 'power', SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT, 'W', 'mdi:lightning-bolt', None],
-    'exported': ['Exported', 'exported', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:lightning-bolt', None],
-    'imported': ['Imported', 'imported', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING, 'Wh', 'mdi:lightning-bolt', None],
+    'exported': ['Exported', 'exported', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:lightning-bolt', None],
+    'imported': ['Imported', 'imported', SensorDeviceClass.ENERGY, SensorStateClass.TOTAL, 'Wh', 'mdi:lightning-bolt', None],
     'line_frequency': ['Line frequency', 'line_frequency', SensorDeviceClass.FREQUENCY, SensorStateClass.MEASUREMENT, 'Hz', None, None],
     'PhVphA': ['AC voltage L1-N', 'PhVphA', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
     'PhVphB': ['AC voltage L2-N', 'PhVphB', SensorDeviceClass.VOLTAGE, SensorStateClass.MEASUREMENT, 'V', 'mdi:lightning-bolt', None],
